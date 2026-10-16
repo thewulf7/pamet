@@ -255,6 +255,61 @@ fn form_summary(store: &Store, run_id: &str, cluster: &Cluster, items: &[MemoryI
             params![Uuid::new_v4().to_string(), cluster.cluster_id, summary_id, member_id, run_id, now],
         )?;
     }
+
+    // Constitution II: "Low-confidence writes...MUST be flagged for human
+    // review before being promoted into consolidated knowledge." Every
+    // cluster consolidation forms is, by construction, in the ambiguous
+    // 0.5-0.85 band (anything >= 0.85 already merged at write time — see
+    // `cluster_items()` docs) — so the new summary is itself a low-
+    // confidence promotion. It's created now (satisfying the spec's
+    // Acceptance Scenario 1: "clustered into one consolidated item...
+    // recoverable via the event log") but reuses the EXISTING
+    // `pending_review_candidate_ids` filter in `lib.rs::recall()` to stay
+    // invisible to retrieval until a human resolves this review entry —
+    // the same "write_decision + review_queue, excluded from recall while
+    // pending" mechanism Phase 1 already uses for ambiguous writes, so
+    // nothing new is invented. Resolve via `pamet review resolve <id>
+    // --decision store` (accept) or `--decision skip` (reject).
+    write_review_gate(store, &summary_id, &chosen.content, summary_event_id, &now)?;
+
+    Ok(())
+}
+
+/// Source items whose cluster's summary has been confirmed (non-pending,
+/// non-rejected review) — T042/SC-005, see `lib.rs::recall()`.
+pub fn confirmed_cluster_source_ids(store: &Store) -> Result<std::collections::HashSet<String>> {
+    let mut stmt = store.conn.prepare(
+        "SELECT cm.source_item_id FROM cluster_members cm \
+         JOIN write_decisions wd ON wd.resulting_item_id = cm.summary_item_id \
+         JOIN review_queue rq ON rq.write_decision_id = wd.id \
+         WHERE rq.status NOT IN ('pending', 'resolved_skip')",
+    )?;
+    let mut out = std::collections::HashSet::new();
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    for r in rows {
+        out.insert(r?);
+    }
+    Ok(out)
+}
+
+fn write_review_gate(
+    store: &Store,
+    summary_id: &str,
+    summary_content: &str,
+    summary_event_id: i64,
+    now: &str,
+) -> Result<()> {
+    store.conn.execute(
+        "INSERT INTO write_decisions (event_id, candidate_content, decision, rule_name, \
+            rule_inputs_json, resulting_item_id, created_at) VALUES (?1, ?2, 'review', \
+            'consolidation_cluster_review', '{}', ?3, ?4)",
+        params![summary_event_id, summary_content, summary_id, now],
+    )?;
+    let write_decision_id = store.conn.last_insert_rowid();
+    store.conn.execute(
+        "INSERT INTO review_queue (write_decision_id, reason, status, created_at) VALUES (?1, ?2, 'pending', ?3)",
+        params![write_decision_id, ReviewReason::ConsolidationClusterPromotion.as_str(), now],
+    )?;
     Ok(())
 }
 

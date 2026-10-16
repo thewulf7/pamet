@@ -98,3 +98,74 @@ fn interrupted_run_is_marked_and_new_run_proceeds() {
         && e.payload_json.contains("\"status\":\"interrupted\"")
         && e.payload_json.contains("stale-run")));
 }
+
+#[test]
+fn summary_is_review_gated_until_resolved_t041() {
+    // Constitution II: every cluster is formed in the ambiguous 0.5-0.85
+    // band, so the new summary must be flagged for review and stay
+    // invisible to recall until a human resolves it.
+    let store = Store::open_in_memory().unwrap();
+    remember(&store, FACT_A, true);
+    remember(&store, FACT_B, true);
+    pamet::consolidate(&store).unwrap();
+
+    let pending = pamet::services::review::list(&store, Some("pending")).unwrap();
+    let cluster_reviews: Vec<_> =
+        pending.iter().filter(|r| r.reason == "consolidation_cluster_promotion").collect();
+    assert_eq!(cluster_reviews.len(), 1, "exactly one pending review for the new summary");
+
+    // The summary content must NOT be the top/only thing recall surfaces
+    // while pending — find the summary item id directly and confirm recall
+    // excludes it.
+    let summary_id: String = store
+        .conn
+        .query_row("SELECT id FROM memory_items WHERE item_type = 'summary'", [], |r| r.get(0))
+        .unwrap();
+    let result = pamet::recall(&store, "quarterly report deadline", None).unwrap();
+    assert!(
+        !result.items.iter().any(|i| i.id == summary_id),
+        "pending-review summary must not appear in recall results"
+    );
+
+    // Resolve it as accepted — it should become visible.
+    pamet::resolve_review(&store, cluster_reviews[0].id, pamet::Decision::Store).unwrap();
+    let result_after = pamet::recall(&store, "quarterly report deadline", None).unwrap();
+    assert!(
+        result_after.items.iter().any(|i| i.id == summary_id),
+        "approved summary must become visible to recall"
+    );
+}
+
+#[test]
+fn confirmed_summary_replaces_originals_in_recall_sc005() {
+    let store = Store::open_in_memory().unwrap();
+    remember(&store, FACT_A, true);
+    remember(&store, FACT_B, true);
+
+    let before = pamet::recall(&store, "quarterly report deadline", None).unwrap();
+    let before_count = before.items.len();
+    assert_eq!(before_count, 2, "both near-duplicates surface before consolidation");
+
+    pamet::consolidate(&store).unwrap();
+    let review_id: i64 = store
+        .conn
+        .query_row(
+            "SELECT id FROM review_queue WHERE reason = 'consolidation_cluster_promotion' AND status = 'pending'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    pamet::resolve_review(&store, review_id, pamet::Decision::Store).unwrap();
+
+    let after = pamet::recall(&store, "quarterly report deadline", None).unwrap();
+    // SC-005: at least 50% fewer surfaced items for the same query once the
+    // cluster's summary is confirmed (2 originals -> 1 summary = 50% exactly).
+    assert!(
+        (after.items.len() as f64) <= (before_count as f64) * 0.5,
+        "expected >= 50% fewer surfaced items after confirmation, before={before_count} after={}",
+        after.items.len()
+    );
+    // The originals themselves are gone from recall (superseded), but the
+    // summary — carrying the same topical content — is present.
+    assert!(after.items.iter().any(|i| i.item_type == pamet::ItemType::Summary));
+}

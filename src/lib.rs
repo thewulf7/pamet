@@ -242,9 +242,20 @@ pub fn recall(store: &Store, query: &str, budget: Option<usize>) -> Result<Retri
     // memory) — tombstoned items are already excluded by the SQL in the
     // per-method searches above.
     let pending_review_items = pending_review_candidate_ids(store)?;
+    // T042/SC-005: once a cluster's summary has been confirmed (approved,
+    // not pending, not rejected), the raw originals it was built from are
+    // superseded by that summary and should stop being surfaced alongside
+    // it — non-destructive (still in memory_items, still in export-log),
+    // just excluded from default ranking the same way pending-review items
+    // already are.
+    let confirmed_cluster_sources = services::consolidation::confirmed_cluster_source_ids(store)?;
     let filtered: Vec<RankedCandidate> = fused
         .into_iter()
-        .filter(|c| c.score > RELEVANCE_FLOOR && !pending_review_items.contains(&c.item_id))
+        .filter(|c| {
+            c.score > RELEVANCE_FLOOR
+                && !pending_review_items.contains(&c.item_id)
+                && !confirmed_cluster_sources.contains(&c.item_id)
+        })
         .collect();
 
     let bounded: Vec<RankedCandidate> = filtered.into_iter().take(budget).collect();

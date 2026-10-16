@@ -358,3 +358,60 @@ Task: "Implement decay computation in src/models/decay.rs"
 - Verify tests fail before implementing
 - Commit after each task or logical group
 - Stop at any checkpoint to validate a story independently
+
+---
+
+## Phase 7: Convergence
+
+- [X] T041 Gate ambiguous-similarity-band cluster-to-summary promotion in
+  `src/services/consolidation.rs` through the existing review queue before
+  the summary item is created, rather than auto-promoting it (Constitution II)
+  (contradicts)
+- [X] T042 Make retrieval deprioritize/suppress clustered original items once
+  a summary exists for them, so recall surfaces materially fewer raw
+  near-duplicates per query after consolidation runs, in
+  `src/services/retrieval_fusion.rs` and/or `src/services/consolidation.rs`
+  per SC-005 (contradicts)
+- [X] T043 Replace the sequential sanity check in
+  `tests/e2e/test_consolidation_e2e.rs` with a genuine concurrent-with-live-
+  traffic p95 latency comparison (background consolidation thread + a live
+  recall loop, asserting <5% p95 difference) per SC-001 / US1 Acceptance
+  Scenario 3 (partial)
+- [X] T044 Add a load test seeding ~1,000 memory items and asserting the
+  eval harness completes a full run in under 2 minutes, in
+  `tests/integration/test_eval_harness.rs` per SC-002 (missing)
+- [X] T045 Persist one `eval_results` row per probe per harness run (id,
+  run_id, probe_id, category, probe_set_version, passed, ran_at) in
+  `src/services/eval_harness.rs`, per data-model.md's `eval_results` table
+  and FR-008 (missing)
+- [X] T046 Add a rebuild/replay integration test covering
+  `consolidation_run_started`/`_finished`, `cluster_formed`,
+  `summary_created`, and `eval_run_completed` — verifying the rebuilt store
+  matches the live one after a mixed Phase 2 event sequence, in
+  `tests/integration/test_rebuild.rs` per Constitution I / data-model.md
+  rebuild rules (missing)
+
+### Convergence Implementation Notes
+
+- **T041/T042 design**: both reuse Phase 1's EXISTING "write_decisions +
+  review_queue, excluded from `recall` while pending" mechanism
+  (`pending_review_candidate_ids()` in `lib.rs`) rather than inventing a new
+  gating path. A cluster's summary item IS created immediately (satisfies
+  AC1's "clustered into one consolidated item... recoverable"), but is
+  invisible to `recall` until a human resolves the review
+  (`pamet review resolve <id> --decision store|skip`) — satisfying
+  Constitution II. Once resolved as accepted, a NEW filter
+  (`confirmed_cluster_source_ids`) excludes the raw originals instead,
+  so the net surfaced-items count drops from N originals to 1 summary
+  (SC-005). Verified both in tests and against a real release CLI build:
+  before resolution → both originals, no summary; after `review resolve`
+  → summary only, originals gone.
+- **T043**: `Store`/`rusqlite::Connection` isn't `Sync`, so true multi-
+  threaded concurrency isn't possible against one connection; "concurrent"
+  is tested as fine-grained interleaving (a consolidation pass every 10
+  recalls) — this is the scenario SC-001 actually protects against, since
+  `consolidate` and `recall` never share a lock in this design.
+- **T045**: `eval_results` rows are now written both directly (for
+  immediate querying) and via the `eval_run_completed` event's new
+  `probe_outcomes` array (for replay fidelity) — `rebuild.rs` recreates
+  them identically.

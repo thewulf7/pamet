@@ -39,6 +39,7 @@ pub enum ReviewReason {
     LowConfidence,
     UnresolvedContradiction,
     ConsolidationContradiction,
+    ConsolidationClusterPromotion,
 }
 
 impl ReviewReason {
@@ -47,6 +48,7 @@ impl ReviewReason {
             ReviewReason::LowConfidence => "low_confidence",
             ReviewReason::UnresolvedContradiction => "unresolved_contradiction",
             ReviewReason::ConsolidationContradiction => "consolidation_contradiction",
+            ReviewReason::ConsolidationClusterPromotion => "consolidation_cluster_promotion",
         }
     }
 }

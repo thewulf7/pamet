@@ -245,6 +245,20 @@ fn apply_summary_created(store: &Store, event: &Event, payload: &serde_json::Val
             params![uuid::Uuid::new_v4().to_string(), cluster_id, summary_item_id, member_id, run_id, event.occurred_at],
         )?;
     }
+    // Replay the review gate the same way the live path creates it (T041) —
+    // same write_decisions + review_queue rows, so a rebuilt store's
+    // pending/resolved review state matches the live one exactly.
+    store.conn.execute(
+        "INSERT INTO write_decisions (event_id, candidate_content, decision, rule_name, \
+            rule_inputs_json, resulting_item_id, created_at) VALUES (?1, ?2, 'review', \
+            'consolidation_cluster_review', '{}', ?3, ?4)",
+        params![event.id, summary_content, summary_item_id, event.occurred_at],
+    )?;
+    let write_decision_id = store.conn.last_insert_rowid();
+    store.conn.execute(
+        "INSERT INTO review_queue (write_decision_id, reason, status, created_at) VALUES (?1, 'consolidation_cluster_promotion', 'pending', ?2)",
+        params![write_decision_id, event.occurred_at],
+    )?;
     Ok(())
 }
 
@@ -263,5 +277,18 @@ fn apply_eval_run_completed(store: &Store, payload: &serde_json::Value) -> Resul
             hindsight_results_json, hindsight_available) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![report_id, probe_set_version, generated_at, pamet_results_json, hindsight_results_json, hindsight_available as i64],
     )?;
+    // T045: replay the per-probe eval_results rows from the same event.
+    if let Some(outcomes) = payload["probe_outcomes"].as_array() {
+        for outcome in outcomes {
+            let probe_id = outcome["probe_id"].as_str().unwrap_or_default();
+            let category = outcome["category"].as_str().unwrap_or_default();
+            let passed = outcome["passed"].as_bool().unwrap_or(false);
+            store.conn.execute(
+                "INSERT INTO eval_results (id, run_id, probe_id, category, probe_set_version, passed, ran_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![uuid::Uuid::new_v4().to_string(), report_id, probe_id, category, probe_set_version, passed as i64, generated_at],
+            )?;
+        }
+    }
     Ok(())
 }

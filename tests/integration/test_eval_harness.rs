@@ -70,3 +70,38 @@ fn write_report_file_round_trips_as_json() {
     assert!(parsed.get("pamet").is_some());
     std::fs::remove_file(&tmp).ok();
 }
+
+/// T044/SC-002: a full harness run completes in under 2 minutes for up to
+/// 1,000 memory items of cumulative state across the run (the harness
+/// seeds one fresh temp store per probe, so 1,000 synthetic single-fact
+/// probes is the equivalent scale check).
+#[test]
+fn harness_completes_within_two_minutes_at_1000_item_scale_sc002() {
+    use pamet::models::{EvalProbe, EvalProbeSet, ExpectedOutcome, GivenStep, ProbeAction, ProbeCategory};
+
+    let probes: Vec<EvalProbe> = (0..1000)
+        .map(|i| EvalProbe {
+            id: format!("load-{i}"),
+            category: ProbeCategory::NewFactRecall,
+            given: vec![GivenStep {
+                text: format!("Load-test fact number {i} says the value is {i}."),
+                source_id: "load-test".into(),
+                explicit_remember: true,
+            }],
+            action: ProbeAction::Recall { query: format!("what is load-test fact number {i}") },
+            expected: ExpectedOutcome::ContainsContent { value: i.to_string() },
+        })
+        .collect();
+    let probe_set = EvalProbeSet { version: "load-test".into(), probes };
+
+    let start = std::time::Instant::now();
+    let report = eval_harness::run_pamet(&probe_set).unwrap();
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed.as_secs() < 120,
+        "1,000-item harness run took {elapsed:?}, exceeds the 2-minute SC-002 bound"
+    );
+    let score = report.get(ProbeCategory::NewFactRecall.as_str()).unwrap();
+    assert_eq!(score.total, 1000);
+}

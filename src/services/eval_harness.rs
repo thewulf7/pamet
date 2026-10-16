@@ -25,7 +25,14 @@ pub fn load_probe_set(path: &Path) -> Result<EvalProbeSet> {
 /// Run every probe against a FRESH in-memory store per probe (never the
 /// caller's real `--db`), deterministically.
 pub fn run_pamet(probe_set: &EvalProbeSet) -> Result<SystemReport> {
+    Ok(run_pamet_detailed(probe_set)?.0)
+}
+
+/// Same as `run_pamet`, but also returns one `(probe_id, category, passed,
+/// latency_ms)` tuple per probe — T045/data-model.md `eval_results`.
+pub fn run_pamet_detailed(probe_set: &EvalProbeSet) -> Result<(SystemReport, Vec<ProbeOutcome>)> {
     let mut categories: SystemReport = BTreeMap::new();
+    let mut outcomes = Vec::with_capacity(probe_set.probes.len());
     for probe in &probe_set.probes {
         let store = Store::open_in_memory()?;
         for step in &probe.given {
@@ -42,8 +49,23 @@ pub fn run_pamet(probe_set: &EvalProbeSet) -> Result<SystemReport> {
         let passed = run_one_probe(&store, probe)?;
         let latency_ms = t0.elapsed().as_secs_f64() * 1000.0;
         record(&mut categories, probe, passed, latency_ms);
+        outcomes.push(ProbeOutcome {
+            probe_id: probe.id.clone(),
+            category: probe.category.as_str().to_string(),
+            passed,
+            latency_ms,
+        });
     }
-    Ok(categories)
+    Ok((categories, outcomes))
+}
+
+/// One probe's outcome from a harness run — the in-memory shape persisted
+/// to the `eval_results` table (data-model.md).
+pub struct ProbeOutcome {
+    pub probe_id: String,
+    pub category: String,
+    pub passed: bool,
+    pub latency_ms: f64,
 }
 
 #[cfg(feature = "baseline-hindsight")]
@@ -128,7 +150,7 @@ pub fn run_and_report(
     with_hindsight: bool,
 ) -> Result<BaselineReport> {
     let probe_set = load_probe_set(fixtures_path)?;
-    let pamet = run_pamet(&probe_set)?;
+    let (pamet, pamet_outcomes) = run_pamet_detailed(&probe_set)?;
     let (hindsight_available, hindsight) =
         if with_hindsight { run_hindsight(&probe_set) } else { (false, None) };
 
@@ -140,13 +162,47 @@ pub fn run_and_report(
         hindsight_available,
         hindsight,
     };
-    persist_report(store, &report)?;
+    persist_report(store, &report, &pamet_outcomes)?;
+    persist_eval_results(store, &report.id, &probe_set.version, &pamet_outcomes, &report.generated_at)?;
     Ok(report)
 }
 
-fn persist_report(store: &Store, report: &BaselineReport) -> Result<()> {
+/// T045/data-model.md `eval_results`: one row per probe per run, so results
+/// can be diffed at probe granularity (not just per-category) across runs.
+fn persist_eval_results(
+    store: &Store,
+    run_id: &str,
+    probe_set_version: &str,
+    outcomes: &[ProbeOutcome],
+    ran_at: &str,
+) -> Result<()> {
+    for outcome in outcomes {
+        store.conn.execute(
+            "INSERT INTO eval_results (id, run_id, probe_id, category, probe_set_version, passed, ran_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                Uuid::new_v4().to_string(),
+                run_id,
+                outcome.probe_id,
+                outcome.category,
+                probe_set_version,
+                outcome.passed as i64,
+                ran_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn persist_report(store: &Store, report: &BaselineReport, outcomes: &[ProbeOutcome]) -> Result<()> {
     let pamet_json = serde_json::to_string(&report.pamet)?;
     let hindsight_json = report.hindsight.as_ref().map(serde_json::to_string).transpose()?;
+    let outcomes_json: Vec<serde_json::Value> = outcomes
+        .iter()
+        .map(|o| serde_json::json!({
+            "probe_id": o.probe_id, "category": o.category, "passed": o.passed, "latency_ms": o.latency_ms,
+        }))
+        .collect();
     crate::services::events::append_event(
         store,
         "eval_run_completed",
@@ -154,6 +210,7 @@ fn persist_report(store: &Store, report: &BaselineReport) -> Result<()> {
             "report_id": report.id, "probe_set_version": report.probe_set_version,
             "generated_at": report.generated_at, "pamet_results_json": pamet_json,
             "hindsight_results_json": hindsight_json, "hindsight_available": report.hindsight_available,
+            "probe_outcomes": outcomes_json,
         }),
     )?;
     store.conn.execute(

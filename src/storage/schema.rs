@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS review_queue (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     write_decision_id   INTEGER NOT NULL REFERENCES write_decisions(id),
     reason              TEXT NOT NULL CHECK (reason IN
-                          ('low_confidence','unresolved_contradiction','consolidation_contradiction')),
+                          ('low_confidence','unresolved_contradiction','consolidation_contradiction',
+                           'consolidation_cluster_promotion')),
     status              TEXT NOT NULL CHECK (status IN
                           ('pending','resolved_store','resolved_merge','resolved_supersede','resolved_skip')),
     created_at          TEXT NOT NULL,
