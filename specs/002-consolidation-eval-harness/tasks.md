@@ -28,7 +28,7 @@ description: "Task list template for feature implementation"
   existing `mcp` feature pattern)
 - [X] T002 [P] Create `tests/fixtures/` directory with an empty
   `eval_probes_v1.json` skeleton (`{"version": "v1", "probes": []}`)
-- [ ] T003 Update the AGENTS.md SPECKIT pointer to
+- [X] T003 Update the AGENTS.md SPECKIT pointer to
   `specs/002-consolidation-eval-harness/plan.md` — **requires explicit user
   approval**, blocked once already this phase (protected-file write prompt
   timed out during `/speckit-plan`); do not retry via a different tool path
@@ -211,7 +211,7 @@ failure) — quickstart.md Scenario 5.
   what was speculated during planning
 - [X] T038 [P] Add `consolidate` and `eval` subcommands to `README.md` and
   `docs/GUIDE.md`
-- [ ] T039 Confirm the AGENTS.md pointer (T003) has actually been approved
+- [X] T039 Confirm the AGENTS.md pointer (T003) has actually been approved
   and applied — do not mark this phase done while it is still pending
 - [X] T040 [P] Mark all tasks in this file `[X]`, and append an
   "Implementation Notes" section recording any actual-vs-planned deviations
