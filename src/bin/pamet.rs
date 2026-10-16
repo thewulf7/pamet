@@ -1,0 +1,165 @@
+//! `pamet` CLI (contracts/cli-contract.md). T009, T016, T017, T027, T034.
+
+use clap::{Parser, Subcommand};
+use pamet::{Decision, Interaction, Store};
+use std::process::ExitCode;
+
+#[derive(Parser)]
+#[command(name = "pamet")]
+struct Cli {
+    #[arg(long, default_value = "./pamet.db")]
+    db: String,
+
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    Remember {
+        #[arg(long)]
+        text: String,
+        #[arg(long, default_value = "cli")]
+        source_id: String,
+        #[arg(long)]
+        explicit_remember: bool,
+    },
+    Recall {
+        #[arg(long)]
+        query: String,
+        #[arg(long, default_value_t = 5)]
+        budget: usize,
+    },
+    Outcome {
+        #[arg(long)]
+        event_id: i64,
+        #[arg(long)]
+        item_id: String,
+        #[arg(long, action = clap::ArgAction::Set, value_parser = clap::value_parser!(bool))]
+        used: bool,
+    },
+    Review {
+        #[command(subcommand)]
+        action: ReviewAction,
+    },
+    Forget {
+        #[arg(long)]
+        item_id: String,
+    },
+    ExportLog {
+        #[arg(long)]
+        since: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReviewAction {
+    List {
+        #[arg(long)]
+        status: Option<String>,
+    },
+    Resolve {
+        #[arg(long)]
+        review_id: i64,
+        #[arg(long)]
+        decision: String,
+    },
+}
+
+fn parse_decision(s: &str) -> Option<Decision> {
+    match s {
+        "store" => Some(Decision::Store),
+        "merge" => Some(Decision::Merge),
+        "supersede" => Some(Decision::Supersede),
+        "skip" => Some(Decision::Skip),
+        _ => None,
+    }
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    let store = match Store::open(&cli.db) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("storage error: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    let result = run(&store, cli.command);
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
+    match command {
+        Command::Remember { text, source_id, explicit_remember } => {
+            let interaction = Interaction { source_id, text, explicit_remember };
+            let decisions = pamet::remember(store, &interaction)?;
+            for d in decisions {
+                println!(
+                    "{} rule={} item={}",
+                    d.decision.as_str(),
+                    d.rule_name,
+                    d.resulting_item_id.unwrap_or_else(|| "-".to_string())
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Recall { query, budget } => {
+            let result = pamet::recall(store, &query, Some(budget))?;
+            if result.items.is_empty() {
+                println!("no relevant memory found");
+            } else {
+                for item in &result.items {
+                    println!(
+                        "{} [{}] {}",
+                        item.id,
+                        item.item_type.as_str(),
+                        item.content
+                    );
+                }
+            }
+            eprintln!("event_id={}", result.event_id);
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Outcome { event_id, item_id, used } => {
+            pamet::report_outcome(store, event_id, &item_id, used)?;
+            println!("ok");
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Review { action } => match action {
+            ReviewAction::List { status } => {
+                let rows = pamet::services::review::list(store, status.as_deref().or(Some("pending")))?;
+                for r in rows {
+                    println!("{} wd={} reason={} status={}", r.id, r.write_decision_id, r.reason, r.status);
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            ReviewAction::Resolve { review_id, decision } => {
+                let decision = parse_decision(&decision)
+                    .ok_or_else(|| pamet::Error::Validation(format!("invalid decision '{decision}'")))?;
+                pamet::resolve_review(store, review_id, decision)?;
+                println!("ok");
+                Ok(ExitCode::SUCCESS)
+            }
+        },
+        Command::Forget { item_id } => {
+            pamet::tombstone(store, &item_id)?;
+            println!("ok");
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::ExportLog { since } => {
+            let events = pamet::export_log(store, since.as_deref())?;
+            for e in events {
+                println!("{}", serde_json::to_string(&e).unwrap_or_default());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
