@@ -42,7 +42,26 @@ pamet --db ./pamet.db forget --item-id <uuid>
 
 # Dump the full append-only event log (newline-delimited JSON, replay-ordered)
 pamet --db ./pamet.db export-log
+
+# Phase 2: run one consolidation pass (clusters near-duplicates into
+# summaries, flags contradictions for review, non-destructive and never
+# called from remember/recall — a separate scheduled job)
+pamet --db ./pamet.db consolidate
+
+# Phase 2: run the deterministic eval harness against the checked-in probe
+# fixture (new_fact_recall / update_supersession / forgetting_abstention /
+# general_precision); exits 1 if any probe failed, for CI gating
+pamet eval --fixtures tests/fixtures/eval_probes_v1.json --report-out ./report.json
+
+# + Hindsight baseline column (requires `--features baseline-hindsight` at
+# build time AND a local Hindsight instance running at localhost:8888;
+# degrades to hindsight_available:false if unreachable, never fails the run)
+pamet eval --fixtures tests/fixtures/eval_probes_v1.json --with-hindsight --report-out ./report.json
 ```
+
+See `specs/002-consolidation-eval-harness/quickstart.md` for full worked
+scenarios with real observed output.
+
 
 Full runnable walkthrough: `specs/001-memory-store-mvp/quickstart.md`.
 

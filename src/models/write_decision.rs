@@ -38,6 +38,7 @@ pub struct WriteDecisionRecord {
 pub enum ReviewReason {
     LowConfidence,
     UnresolvedContradiction,
+    ConsolidationContradiction,
 }
 
 impl ReviewReason {
@@ -45,6 +46,7 @@ impl ReviewReason {
         match self {
             ReviewReason::LowConfidence => "low_confidence",
             ReviewReason::UnresolvedContradiction => "unresolved_contradiction",
+            ReviewReason::ConsolidationContradiction => "consolidation_contradiction",
         }
     }
 }

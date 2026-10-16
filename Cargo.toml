@@ -29,9 +29,11 @@ rmcp = { version = "0.1", features = ["transport-io"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"], optional = true }
 schemars = { version = "0.8", optional = true }
 anyhow = { version = "1", optional = true }
+reqwest = { version = "0.12", features = ["blocking", "json"], optional = true }
 
 [features]
 mcp = ["rmcp", "tokio", "schemars", "anyhow"]
+baseline-hindsight = ["reqwest"]
 
 [dev-dependencies]
 tempfile = "3"
@@ -79,3 +81,15 @@ path = "tests/smoke/test_smoke.rs"
 [[test]]
 name = "e2e_cli"
 path = "tests/e2e/test_cli_e2e.rs"
+
+[[test]]
+name = "integration_consolidation"
+path = "tests/integration/test_consolidation.rs"
+
+[[test]]
+name = "integration_eval_harness"
+path = "tests/integration/test_eval_harness.rs"
+
+[[test]]
+name = "e2e_consolidation"
+path = "tests/e2e/test_consolidation_e2e.rs"

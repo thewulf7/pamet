@@ -169,7 +169,9 @@ fn active_items(store: &Store) -> Result<Vec<MemoryItem>> {
 /// with the best match but diverges enough in wording to not be a near-dup.
 /// This stands in for the design docs' NLI/LLM-judge contradiction check —
 /// still a hand-written rule, not a learned model (Principle III).
-fn detect_contradiction(candidate: &Candidate, best_match: Option<&MemoryItem>) -> bool {
+/// `pub(crate)` so the Phase 2 consolidation job (research.md §4) can reuse
+/// the exact same heuristic instead of a second one drifting apart from it.
+pub(crate) fn detect_contradiction(candidate: &Candidate, best_match: Option<&MemoryItem>) -> bool {
     let item = match best_match {
         Some(i) => i,
         None => return false,

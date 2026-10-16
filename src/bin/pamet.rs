@@ -50,6 +50,15 @@ enum Command {
         #[arg(long)]
         since: Option<String>,
     },
+    Consolidate {},
+    Eval {
+        #[arg(long, default_value = "tests/fixtures/eval_probes_v1.json")]
+        fixtures: String,
+        #[arg(long)]
+        with_hindsight: bool,
+        #[arg(long)]
+        report_out: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -160,6 +169,31 @@ fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
                 println!("{}", serde_json::to_string(&e).unwrap_or_default());
             }
             Ok(ExitCode::SUCCESS)
+        }
+        Command::Consolidate {} => {
+            let summary = pamet::consolidate(store)?;
+            println!(
+                "consolidation_run={} items={} clusters={} contradictions={}",
+                summary.run_id, summary.items_processed, summary.clusters_formed, summary.contradictions_flagged
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Eval { fixtures, with_hindsight, report_out } => {
+            let report = pamet::services::eval_harness::run_and_report(
+                store,
+                std::path::Path::new(&fixtures),
+                with_hindsight,
+            )?;
+            let out_path = report_out.unwrap_or_else(|| {
+                format!("./pamet-eval-report-{}.json", chrono::Utc::now().format("%Y%m%d%H%M%S"))
+            });
+            pamet::services::eval_harness::write_report_file(&report, std::path::Path::new(&out_path))?;
+            println!("report written to {out_path}");
+            if pamet::services::eval_harness::pamet_report_all_passed(&report) {
+                Ok(ExitCode::SUCCESS)
+            } else {
+                Ok(ExitCode::from(1))
+            }
         }
     }
 }

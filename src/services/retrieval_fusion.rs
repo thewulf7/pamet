@@ -1,7 +1,11 @@
 //! Reciprocal Rank Fusion (T025), per research.md "Result fusion" decision.
 //! Deterministic, hand-written — no learned reranker (Principle III).
 
+use crate::error::Result;
 use crate::models::RankedCandidate;
+use crate::storage::Store;
+use chrono::Utc;
+use rusqlite::params;
 use std::collections::HashMap;
 
 const RRF_K: f32 = 60.0;
@@ -20,6 +24,43 @@ pub fn fuse(lists: &[&[RankedCandidate]]) -> Vec<RankedCandidate> {
         .collect();
     fused.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
     fused
+}
+
+/// Apply the decay multiplier (research.md §3, FR-004) to each candidate's
+/// fused score, in place, then re-sort. A missing/unreadable item is left
+/// unmodified (fail open on ranking only). `after_days`/`penalty` let the
+/// `consolidate` CLI subcommand override the defaults for one run; the live
+/// recall path always uses `decay::DECAY_AFTER_DAYS`/`DECAY_PENALTY`.
+pub fn apply_decay(
+    store: &Store,
+    candidates: &mut Vec<RankedCandidate>,
+    after_days: i64,
+    penalty: f32,
+) -> Result<()> {
+    let now = Utc::now();
+    for candidate in candidates.iter_mut() {
+        let row: Option<(String, Option<String>, i64)> = store
+            .conn
+            .query_row(
+                "SELECT created_at, last_used_at, use_count FROM memory_items WHERE id = ?1",
+                params![candidate.item_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .ok();
+        if let Some((created_at, last_used_at, use_count)) = row {
+            let m = crate::models::decay::multiplier(
+                &created_at,
+                last_used_at.as_deref(),
+                use_count,
+                now,
+                after_days,
+                penalty,
+            );
+            candidate.score *= m;
+        }
+    }
+    candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    Ok(())
 }
 
 #[cfg(test)]

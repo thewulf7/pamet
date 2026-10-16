@@ -15,12 +15,17 @@ pub struct Event {
     pub schema_version: i64,
 }
 
-const VALID_EVENT_TYPES: [&str; 5] = [
+const VALID_EVENT_TYPES: [&str; 10] = [
     "write_decision",
     "retrieval",
     "outcome_update",
     "review_resolution",
     "tombstone",
+    "cluster_formed",
+    "summary_created",
+    "consolidation_run_started",
+    "consolidation_run_finished",
+    "eval_run_completed",
 ];
 
 /// Append one event to the log. Fails closed on an unknown event_type or

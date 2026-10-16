@@ -6,6 +6,7 @@ pub enum ItemType {
     Fact,
     Preference,
     Procedure,
+    Summary,
 }
 
 impl ItemType {
@@ -15,6 +16,7 @@ impl ItemType {
             ItemType::Fact => "fact",
             ItemType::Preference => "preference",
             ItemType::Procedure => "procedure",
+            ItemType::Summary => "summary",
         }
     }
 
@@ -24,6 +26,7 @@ impl ItemType {
             "fact" => Some(ItemType::Fact),
             "preference" => Some(ItemType::Preference),
             "procedure" => Some(ItemType::Procedure),
+            "summary" => Some(ItemType::Summary),
             _ => None,
         }
     }

@@ -1,0 +1,110 @@
+{
+  "version": "v1",
+  "probes": [
+    {
+      "id": "new-fact-recall-001",
+      "category": "new_fact_recall",
+      "given": [{"text": "The project is called Pamet.", "explicit_remember": true}],
+      "action": {"type": "recall", "query": "what is the project called"},
+      "expected": {"type": "contains_content", "value": "Pamet"}
+    },
+    {
+      "id": "new-fact-recall-002",
+      "category": "new_fact_recall",
+      "given": [{"text": "The database used is SQLite.", "explicit_remember": true}],
+      "action": {"type": "recall", "query": "what database is used"},
+      "expected": {"type": "contains_content", "value": "SQLite"}
+    },
+    {
+      "id": "new-fact-recall-003",
+      "category": "new_fact_recall",
+      "given": [{"text": "The CLI binary is named pamet.", "explicit_remember": true}],
+      "action": {"type": "recall", "query": "what is the cli binary called"},
+      "expected": {"type": "contains_content", "value": "pamet"}
+    },
+    {
+      "id": "update-supersession-001",
+      "category": "update_supersession",
+      "given": [
+        {"text": "The deploy window is Tuesdays.", "explicit_remember": true},
+        {"text": "Correction: deploy window plans got completely overhauled by the infrastructure team and replaced with an entirely new permanent schedule that now instead points at totally different days of the week going forward starting from this upcoming sprint cycle Thursdays.", "explicit_remember": true}
+      ],
+      "action": {"type": "recall", "query": "when is the deploy window"},
+      "expected": {"type": "contains_content", "value": "Thursdays"}
+    },
+    {
+      "id": "update-supersession-002",
+      "category": "update_supersession",
+      "given": [
+        {"text": "The office vending machine code is 1234.", "explicit_remember": true},
+        {"text": "Correction: vending machine access got completely reconfigured yesterday afternoon by the facilities team and replaced with an entirely new permanent code that now instead unlocks the snack dispenser using a totally different combination going forward starting this upcoming week which is 5678.", "explicit_remember": true}
+      ],
+      "action": {"type": "recall", "query": "what is the office vending machine code"},
+      "expected": {"type": "contains_content", "value": "5678"}
+    },
+    {
+      "id": "update-supersession-003",
+      "category": "update_supersession",
+      "given": [
+        {"text": "The on-call engineer is Alice.", "explicit_remember": true},
+        {"text": "Correction: on-call duty got completely reassigned yesterday afternoon by the engineering manager and the rotation now instead points at a totally different person taking every incident going forward starting this upcoming week whose name happens to be Bob.", "explicit_remember": true}
+      ],
+      "action": {"type": "recall", "query": "who is the on-call engineer"},
+      "expected": {"type": "contains_content", "value": "Bob"}
+    },
+    {
+      "id": "forgetting-abstention-001",
+      "category": "forgetting_abstention",
+      "given": [],
+      "action": {"type": "recall", "query": "what is the secret launch codename"},
+      "expected": {"type": "no_relevant_memory"}
+    },
+    {
+      "id": "forgetting-abstention-002",
+      "category": "forgetting_abstention",
+      "given": [{"text": "The lunch menu today is pasta.", "explicit_remember": true}],
+      "action": {"type": "recall", "query": "what is the answer to life the universe and everything"},
+      "expected": {"type": "no_relevant_memory"}
+    },
+    {
+      "id": "forgetting-abstention-003",
+      "category": "forgetting_abstention",
+      "given": [{"text": "The project is called Pamet.", "explicit_remember": true}],
+      "action": {"type": "recall", "query": "completely unrelated query about weather patterns in antarctica"},
+      "expected": {"type": "no_relevant_memory"}
+    },
+    {
+      "id": "general-precision-001",
+      "category": "general_precision",
+      "given": [
+        {"text": "The project is called Pamet.", "explicit_remember": true},
+        {"text": "The database used is SQLite.", "explicit_remember": true},
+        {"text": "The programming language is Rust.", "explicit_remember": true}
+      ],
+      "action": {"type": "recall", "query": "what is the project called"},
+      "expected": {"type": "contains_content", "value": "Pamet"}
+    },
+    {
+      "id": "general-precision-002",
+      "category": "general_precision",
+      "given": [
+        {"text": "The project is called Pamet.", "explicit_remember": true},
+        {"text": "The database used is SQLite.", "explicit_remember": true},
+        {"text": "The programming language is Rust.", "explicit_remember": true}
+      ],
+      "action": {"type": "recall", "query": "what database technology is used"},
+      "expected": {"type": "contains_content", "value": "SQLite"}
+    },
+    {
+      "id": "general-precision-003",
+      "category": "general_precision",
+      "given": [
+        {"text": "The project is called Pamet.", "explicit_remember": true},
+        {"text": "The database used is SQLite.", "explicit_remember": true},
+        {"text": "The programming language is Rust.", "explicit_remember": true}
+      ],
+      "action": {"type": "recall", "query": "what programming language is this written in"},
+      "expected": {"type": "contains_content", "value": "Rust"}
+    }
+  ]
+}

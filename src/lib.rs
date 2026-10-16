@@ -230,7 +230,13 @@ pub fn recall(store: &Store, query: &str, budget: Option<usize>) -> Result<Retri
 
     let vector_candidates = services::retrieval_vector::search(store, query, budget * 3)?;
     let keyword_candidates = services::retrieval_keyword::search(store, query, budget * 3)?;
-    let fused = services::retrieval_fusion::fuse(&[&vector_candidates, &keyword_candidates]);
+    let mut fused = services::retrieval_fusion::fuse(&[&vector_candidates, &keyword_candidates]);
+    services::retrieval_fusion::apply_decay(
+        store,
+        &mut fused,
+        models::decay::DECAY_AFTER_DAYS,
+        models::decay::DECAY_PENALTY,
+    )?;
 
     // T028: exclude anything currently pending review (not yet an accepted
     // memory) — tombstoned items are already excluded by the SQL in the
@@ -355,4 +361,10 @@ pub fn tombstone(store: &Store, item_id: &str) -> Result<()> {
 /// T033 wrapper: replay-ordered export of the event log (spec SC-006).
 pub fn export_log(store: &Store, since: Option<&str>) -> Result<Vec<services::events::Event>> {
     services::events::export_log(store, since)
+}
+
+/// Phase 2: run one consolidation pass (FR-001..FR-004, FR-010) — a
+/// separate entry point from `remember`/`recall` (Principle IV).
+pub fn consolidate(store: &Store) -> Result<services::consolidation::ConsolidationSummary> {
+    services::consolidation::run(store)
 }

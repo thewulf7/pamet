@@ -1,4 +1,8 @@
+#[cfg(feature = "baseline-hindsight")]
+pub mod baseline_hindsight;
+pub mod consolidation;
 pub mod embedding;
+pub mod eval_harness;
 pub mod events;
 pub mod outcome;
 pub mod rebuild;

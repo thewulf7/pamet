@@ -44,6 +44,11 @@ fn apply_event(store: &Store, event: &Event) -> Result<()> {
         "outcome_update" => apply_outcome_update(store, event, &payload)?,
         "review_resolution" => apply_review_resolution(store, event, &payload)?,
         "tombstone" => apply_tombstone(store, event, &payload)?,
+        "consolidation_run_started" => apply_consolidation_run_started(store, &payload)?,
+        "consolidation_run_finished" => apply_consolidation_run_finished(store, &payload)?,
+        "cluster_formed" => {} // informational only — no row of its own; summary_created does the writes
+        "summary_created" => apply_summary_created(store, event, &payload)?,
+        "eval_run_completed" => apply_eval_run_completed(store, &payload)?,
         other => return Err(Error::MalformedEvent(format!("unknown event_type '{other}' during replay"))),
     }
     Ok(())
@@ -179,6 +184,84 @@ fn apply_tombstone(store: &Store, event: &Event, payload: &serde_json::Value) ->
     store.conn.execute(
         "UPDATE memory_items SET tombstoned_at = ?1 WHERE id = ?2",
         params![event.occurred_at, item_id],
+    )?;
+    Ok(())
+}
+
+fn apply_consolidation_run_started(store: &Store, payload: &serde_json::Value) -> Result<()> {
+    let run_id = payload["run_id"].as_str().unwrap_or_default();
+    let started_at = payload["started_at"].as_str().unwrap_or_default();
+    store.conn.execute(
+        "INSERT INTO consolidation_runs (id, started_at, status) VALUES (?1, ?2, 'running')",
+        params![run_id, started_at],
+    )?;
+    Ok(())
+}
+
+fn apply_consolidation_run_finished(store: &Store, payload: &serde_json::Value) -> Result<()> {
+    let run_id = payload["run_id"].as_str().unwrap_or_default();
+    let finished_at = payload["finished_at"].as_str().unwrap_or_default();
+    let items_processed = payload["items_processed"].as_i64().unwrap_or(0);
+    let clusters_formed = payload["clusters_formed"].as_i64().unwrap_or(0);
+    let contradictions_flagged = payload["contradictions_flagged"].as_i64().unwrap_or(0);
+    let status = payload["status"].as_str().unwrap_or("completed");
+    store.conn.execute(
+        "UPDATE consolidation_runs SET finished_at = ?1, items_processed = ?2, clusters_formed = ?3, \
+            contradictions_flagged = ?4, status = ?5 WHERE id = ?6",
+        params![finished_at, items_processed, clusters_formed, contradictions_flagged, status, run_id],
+    )?;
+    Ok(())
+}
+
+/// Recreates the summary `memory_items` row and every `cluster_members`
+/// link — the `cluster_formed` event that preceded this one in the log
+/// carries no row of its own (research.md §1-2: everything a cluster needs
+/// to be rebuilt is captured in this one event's payload).
+fn apply_summary_created(store: &Store, event: &Event, payload: &serde_json::Value) -> Result<()> {
+    let run_id = payload["run_id"].as_str().unwrap_or_default();
+    let cluster_id = payload["cluster_id"].as_str().unwrap_or_default();
+    let summary_item_id = payload["summary_item_id"].as_str().unwrap_or_default();
+    let summary_content = payload["summary_content"].as_str().unwrap_or_default();
+    let member_item_ids: Vec<String> = payload["member_item_ids"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let embedding = crate::services::embedding::embed(summary_content);
+    store.conn.execute(
+        "INSERT INTO memory_items (id, item_type, content, embedding_json, entities_json, confidence, \
+            provenance_event_id, supersedes_id, created_at, use_count) \
+         VALUES (?1, 'summary', ?2, ?3, '[]', 0.9, ?4, NULL, ?5, 0)",
+        params![summary_item_id, summary_content, serde_json::to_string(&embedding)?, event.id, event.occurred_at],
+    )?;
+    store.conn.execute(
+        "INSERT INTO memory_items_fts (id, content) VALUES (?1, ?2)",
+        params![summary_item_id, summary_content],
+    )?;
+    for member_id in &member_item_ids {
+        store.conn.execute(
+            "INSERT INTO cluster_members (id, cluster_id, summary_item_id, source_item_id, consolidation_run_id, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![uuid::Uuid::new_v4().to_string(), cluster_id, summary_item_id, member_id, run_id, event.occurred_at],
+        )?;
+    }
+    Ok(())
+}
+
+/// Eval runs are read-only probes, not replayed state (data-model.md); this
+/// just mirrors the audit-trail row so `export-log` + replay stay
+/// consistent with what a fresh `pamet eval` run would have written.
+fn apply_eval_run_completed(store: &Store, payload: &serde_json::Value) -> Result<()> {
+    let report_id = payload["report_id"].as_str().unwrap_or_default();
+    let probe_set_version = payload["probe_set_version"].as_str().unwrap_or_default();
+    let generated_at = payload["generated_at"].as_str().unwrap_or_default();
+    let pamet_results_json = payload["pamet_results_json"].as_str().unwrap_or_default();
+    let hindsight_results_json = payload["hindsight_results_json"].as_str();
+    let hindsight_available = payload["hindsight_available"].as_bool().unwrap_or(false);
+    store.conn.execute(
+        "INSERT INTO baseline_reports (id, probe_set_version, generated_at, pamet_results_json, \
+            hindsight_results_json, hindsight_available) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![report_id, probe_set_version, generated_at, pamet_results_json, hindsight_results_json, hindsight_available as i64],
     )?;
     Ok(())
 }
