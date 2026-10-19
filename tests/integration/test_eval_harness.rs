@@ -105,3 +105,117 @@ fn harness_completes_within_two_minutes_at_1000_item_scale_sc002() {
     let score = report.get(ProbeCategory::NewFactRecall.as_str()).unwrap();
     assert_eq!(score.total, 1000);
 }
+
+/// T050/SC-002 (literal reading): SC-002 says "a store containing up to
+/// 1,000 memory items," not 1,000 isolated single-item stores (which
+/// `harness_completes_within_two_minutes_at_1000_item_scale_sc002` above
+/// tests — real but a different thing: harness-loop throughput, not
+/// recall/consolidate performance against an actually-grown corpus). This
+/// test builds ONE store up to 1,000 items and times `recall` and
+/// `consolidate` against that single store, which is what SC-002's wording
+/// — and FR-001's "reads the event log" at real scale — actually describe.
+#[test]
+fn recall_and_consolidate_stay_fast_against_a_single_1000_item_store_sc002() {
+    use pamet::{Interaction, Store as PametStore};
+
+    let store = PametStore::open_in_memory().unwrap();
+    let start = std::time::Instant::now();
+    for i in 0..1000 {
+        pamet::remember(
+            &store,
+            &Interaction {
+                source_id: "scale-test".into(),
+                text: format!("Scale-test fact number {i} says the value is {i}."),
+                explicit_remember: true,
+            },
+        )
+        .unwrap();
+    }
+
+    let result = pamet::recall(&store, "what is scale-test fact number 500", None).unwrap();
+    assert!(!result.items.is_empty(), "recall must still find a match in a 1000-item store");
+
+    let summary = pamet::consolidate(&store).unwrap();
+    // Not exactly 1000: the templated wording is similar enough across many
+    // numbers that write-time policy legitimately merges some near-duplicate
+    // pairs (real behavior, not a test bug) — the scale/performance bound
+    // below is what this test actually verifies.
+    assert!(
+        summary.items_processed > 500,
+        "expected a substantial corpus to have accumulated, got {}",
+        summary.items_processed
+    );
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed.as_secs() < 120,
+        "remember+recall+consolidate against a 1,000-item store took {elapsed:?}, \
+         exceeds the 2-minute SC-002 bound"
+    );
+}
+
+/// T049/US3 Independent Test / spec Edge Cases: when Hindsight is
+/// unreachable, `--with-hindsight` MUST still produce a Pamet-only report
+/// (`hindsight_available: false`), never fail the whole run. Forces
+/// unreachability deterministically via `PAMET_HINDSIGHT_BASE_URL` rather
+/// than relying on whatever may or may not be listening on the real default
+/// port on the machine running the test.
+#[cfg(feature = "baseline-hindsight")]
+#[test]
+fn eval_with_hindsight_degrades_gracefully_when_unreachable_t049() {
+    // Port 1 is a reserved/unused port — guaranteed unreachable, no real
+    // server will ever answer here (unlike an arbitrary high port that
+    // could coincidentally be in use).
+    std::env::set_var("PAMET_HINDSIGHT_BASE_URL", "http://127.0.0.1:1");
+
+    let store = Store::open_in_memory().unwrap();
+    let report = eval_harness::run_and_report(&store, fixtures_path(), true).unwrap();
+
+    assert!(
+        !report.hindsight_available,
+        "unreachable Hindsight must be reported as unavailable, not fail the run"
+    );
+    assert!(report.hindsight.is_none());
+    // The Pamet-only half of the report must still be fully produced.
+    assert!(!report.pamet.is_empty());
+    for (category, score) in &report.pamet {
+        assert!(score.total > 0, "{category} had zero probes run");
+    }
+
+    let count: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM baseline_reports WHERE id = ?1", [&report.id], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "the degraded report must still be persisted");
+
+    std::env::remove_var("PAMET_HINDSIGHT_BASE_URL");
+}
+
+/// T049 (second half, "container permitting"): when Hindsight IS reachable
+/// (real local instance on the default port), the report must contain
+/// BOTH systems' scores on the identical probe set. Skips cleanly (passes
+/// trivially) if no local Hindsight instance happens to be running — this
+/// half of T030/US3's Independent Test is explicitly best-effort/CI-optional,
+/// per spec: the mandatory path is the degraded test above.
+#[cfg(feature = "baseline-hindsight")]
+#[test]
+fn eval_with_hindsight_full_dual_report_when_reachable_t049() {
+    use pamet::services::baseline_hindsight::HindsightClient;
+    if !HindsightClient::new(None).is_reachable() {
+        eprintln!("skipping: no local Hindsight instance reachable on the default port");
+        return;
+    }
+
+    let store = Store::open_in_memory().unwrap();
+    let report = eval_harness::run_and_report(&store, fixtures_path(), true).unwrap();
+
+    assert!(report.hindsight_available, "a reachable Hindsight must be used, not skipped");
+    let hindsight = report.hindsight.expect("hindsight_available=true must carry a report");
+    assert!(!hindsight.is_empty());
+    assert!(!report.pamet.is_empty());
+    // Same probe set, same category keys, both systems scored.
+    assert_eq!(
+        report.pamet.keys().collect::<std::collections::BTreeSet<_>>(),
+        hindsight.keys().collect::<std::collections::BTreeSet<_>>(),
+    );
+}

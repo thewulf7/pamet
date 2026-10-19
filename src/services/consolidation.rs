@@ -19,6 +19,7 @@ pub struct ConsolidationSummary {
     pub items_processed: i64,
     pub clusters_formed: i64,
     pub contradictions_flagged: i64,
+    pub items_decayed: i64,
 }
 
 /// Run one consolidation pass: cluster near-duplicates into summaries, flag
@@ -50,6 +51,7 @@ pub fn run(store: &Store) -> Result<ConsolidationSummary> {
     let clusters_formed = clusters.len() as i64;
 
     let contradictions_flagged = flag_contradictions(store, &items, &clusters)?;
+    let items_decayed = flag_decayed_items(store, &run_id)?;
 
     let finished_at = Utc::now().to_rfc3339();
     events::append_event(
@@ -58,7 +60,7 @@ pub fn run(store: &Store) -> Result<ConsolidationSummary> {
         &serde_json::json!({
             "run_id": run_id, "finished_at": finished_at, "items_processed": items_processed,
             "clusters_formed": clusters_formed, "contradictions_flagged": contradictions_flagged,
-            "status": "completed",
+            "items_decayed": items_decayed, "status": "completed",
         }),
     )?;
     store.conn.execute(
@@ -67,7 +69,59 @@ pub fn run(store: &Store) -> Result<ConsolidationSummary> {
         params![finished_at, items_processed, clusters_formed, contradictions_flagged, run_id],
     )?;
 
-    Ok(ConsolidationSummary { run_id, items_processed, clusters_formed, contradictions_flagged })
+    Ok(ConsolidationSummary { run_id, items_processed, clusters_formed, contradictions_flagged, items_decayed })
+}
+
+/// FR-002/SC-006 (T047): every decay adjustment currently in effect MUST be
+/// traceable via `export-log`. Decay itself stays a pure read-time ranking
+/// computation (no new per-item column, no per-recall-per-item event — that
+/// would flood the log on every live `recall()` and violate Principle IV's
+/// spirit of keeping the hot path unburdened). Instead, each consolidation
+/// run — already a separate, schedulable, off-the-live-path pass — scans
+/// every active item and emits one `item_decayed` observation event per
+/// currently-decayed item, batched into this one run. Non-destructive and
+/// re-runnable: an item already known-decayed simply gets re-observed on
+/// the next run, same as `consolidation_run_finished` is emitted every run
+/// regardless of whether anything changed.
+fn flag_decayed_items(store: &Store, run_id: &str) -> Result<i64> {
+    let now = Utc::now();
+    let rows: Vec<(String, String, Option<String>, i64)> = {
+        let mut stmt = store.conn.prepare(
+            "SELECT id, created_at, last_used_at, use_count FROM memory_items WHERE tombstoned_at IS NULL",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, i64>(3)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        out
+    };
+
+    let mut decayed = 0i64;
+    for (item_id, created_at, last_used_at, use_count) in rows {
+        let m = crate::models::decay::multiplier(
+            &created_at,
+            last_used_at.as_deref(),
+            use_count,
+            now,
+            crate::models::decay::DECAY_AFTER_DAYS,
+            crate::models::decay::DECAY_PENALTY,
+        );
+        if m < 1.0 {
+            events::append_event(
+                store,
+                "item_decayed",
+                &serde_json::json!({
+                    "run_id": run_id, "item_id": item_id, "multiplier": m,
+                    "observed_at": now.to_rfc3339(),
+                }),
+            )?;
+            decayed += 1;
+        }
+    }
+    Ok(decayed)
 }
 
 /// Any run left `running` by a killed/crashed previous process is marked

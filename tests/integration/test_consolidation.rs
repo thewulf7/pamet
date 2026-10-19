@@ -8,6 +8,7 @@
 //! true write-time duplicates — >= 0.85 — never coexist as two active rows).
 
 use pamet::{Interaction, Store};
+use rusqlite::params;
 
 fn remember(store: &Store, text: &str, explicit: bool) {
     pamet::remember(store, &Interaction {
@@ -168,4 +169,100 @@ fn confirmed_summary_replaces_originals_in_recall_sc005() {
     // The originals themselves are gone from recall (superseded), but the
     // summary — carrying the same topical content — is present.
     assert!(after.items.iter().any(|i| i.item_type == pamet::ItemType::Summary));
+}
+
+/// T048/FR-003/US1-AC2: two directly-contradicting facts must be flagged to
+/// the review queue during consolidation, never auto-resolved. Items are
+/// inserted directly (bypassing `remember()`'s single-best-match write-time
+/// check, which would otherwise intercept this exact pair as a write-time
+/// `unresolved_contradiction` review before either could become an active,
+/// consolidation-visible item) — simulating two facts that entered the
+/// store from different sources/times without ever being write-time-compared
+/// against each other, which is exactly the gap consolidation's own
+/// exhaustive pairwise scan (`flag_contradictions`) exists to catch.
+/// Wording verified against the real `embed()`/`cosine_similarity()` to land
+/// in `write_policy`'s contradiction-eligible band (CONTRADICTION_SIMILARITY_FLOOR
+/// 0.35 <= sim < LOW_CONFIDENCE_THRESHOLD 0.5, so they are NOT also clustered
+/// by `cluster_items()`, which only unions pairs >= 0.5): sim ≈ 0.42, 4 shared
+/// tokens, candidate B contains contradiction markers ("actually"/"not"/"now").
+#[test]
+fn contradicting_facts_are_flagged_for_review_not_auto_resolved_t048() {
+    use pamet::services::embedding;
+    use pamet::services::events;
+
+    const FACT_A: &str = "the quarterly review meeting happens tuesday afternoon in building two";
+    const FACT_B: &str = "actually the quarterly review is not happening tuesday now";
+
+    let store = Store::open_in_memory().unwrap();
+
+    // Sanity: confirm the wording actually lands in the intended band before
+    // relying on it (CONTRADICTION_SIMILARITY_FLOOR <= sim < LOW_CONFIDENCE_THRESHOLD).
+    let sim = embedding::cosine_similarity(&embedding::embed(FACT_A), &embedding::embed(FACT_B));
+    assert!(
+        (0.35..0.5).contains(&sim),
+        "fixture wording must land in [0.35, 0.5), got {sim}"
+    );
+
+    for (id, text) in [("item-a", FACT_A), ("item-b", FACT_B)] {
+        let event_id = events::append_event(
+            &store,
+            "write_decision",
+            &serde_json::json!({"source_id": "direct-insert", "candidate_content": text}),
+        )
+        .unwrap();
+        let embedding = embedding::embed(text);
+        store
+            .conn
+            .execute(
+                "INSERT INTO memory_items (id, item_type, content, embedding_json, entities_json, \
+                    confidence, provenance_event_id, created_at, use_count) \
+                 VALUES (?1, 'fact', ?2, ?3, '[]', 0.9, ?4, '2026-01-01T00:00:00Z', 0)",
+                params![id, text, serde_json::to_string(&embedding).unwrap(), event_id],
+            )
+            .unwrap();
+        store
+            .conn
+            .execute("INSERT INTO memory_items_fts (id, content) VALUES (?1, ?2)", params![id, text])
+            .unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO write_decisions (event_id, candidate_content, decision, rule_name, \
+                    rule_inputs_json, resulting_item_id, created_at) \
+                 VALUES (?1, ?2, 'store', 'direct_insert_fixture', '{}', ?3, '2026-01-01T00:00:00Z')",
+                params![event_id, text, id],
+            )
+            .unwrap();
+    }
+
+    let summary = pamet::consolidate(&store).unwrap();
+    assert_eq!(summary.clusters_formed, 0, "sim < 0.5 must not cluster A and B");
+    assert_eq!(
+        summary.contradictions_flagged, 1,
+        "exactly one contradiction must be flagged"
+    );
+
+    let pending = pamet::services::review::list(&store, Some("pending")).unwrap();
+    let contradiction_reviews: Vec<_> =
+        pending.iter().filter(|r| r.reason == "consolidation_contradiction").collect();
+    assert_eq!(
+        contradiction_reviews.len(),
+        1,
+        "the contradiction must land in the review queue, not be auto-resolved"
+    );
+
+    // Neither item was tombstoned/deleted/auto-merged — both remain
+    // inspectable (Constitution II: non-destructive, human decides).
+    let active_count: i64 = store
+        .conn
+        .query_row("SELECT COUNT(*) FROM memory_items WHERE tombstoned_at IS NULL", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(active_count, 2, "neither contradicting item was deleted or merged");
+
+    let log = pamet::export_log(&store, None).unwrap();
+    assert!(
+        log.iter().any(|e| e.event_type == "consolidation_run_finished"
+            && e.payload_json.contains("\"contradictions_flagged\":1")),
+        "the flagged contradiction must be traceable via export-log"
+    );
 }

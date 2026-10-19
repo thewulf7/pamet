@@ -24,8 +24,12 @@ pamet --db <path> consolidate
 - Exit code 0 on completion (including the zero-items no-op case, per spec
   Edge Cases); non-zero only on a storage error.
 - Prints a final
-  `consolidation_run=<id> items=<n> clusters=<n> contradictions=<n>` line to
-  stdout — same style as the existing `remember`/`recall` output.
+  `consolidation_run=<id> items=<n> clusters=<n> contradictions=<n> decayed=<n>`
+  line to stdout — same style as the existing `remember`/`recall` output.
+  `decayed` (added T047) is the count of currently-decayed active items
+  observed this run; each one also gets its own `item_decayed` event in
+  `export-log` (FR-002/SC-006 traceability) — decay itself remains a pure
+  read-time ranking computation with no new per-item stored column.
 - Safe to re-run at any time, including immediately after an interrupted run
   (FR-010) — any item already folded into a cluster is permanently excluded
   from future clustering, so re-running over an unchanged store forms zero

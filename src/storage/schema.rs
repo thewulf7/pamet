@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS events (
     event_type    TEXT    NOT NULL CHECK (event_type IN
                       ('write_decision','retrieval','outcome_update','review_resolution','tombstone',
                        'cluster_formed','summary_created','consolidation_run_started',
-                       'consolidation_run_finished','eval_run_completed')),
+                       'consolidation_run_finished','eval_run_completed','item_decayed')),
     payload_json  TEXT    NOT NULL,
     schema_version INTEGER NOT NULL DEFAULT 1
 );

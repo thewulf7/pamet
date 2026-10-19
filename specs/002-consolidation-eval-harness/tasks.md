@@ -415,3 +415,69 @@ Task: "Implement decay computation in src/models/decay.rs"
   immediate querying) and via the `eval_run_completed` event's new
   `probe_outcomes` array (for replay fidelity) — `rebuild.rs` recreates
   them identically.
+
+---
+
+## Phase 8: Convergence
+
+- [X] T047 Emit a decay-observation event (scoped sensibly — e.g. once per
+  item per `consolidate` run where decay measurably changes its ranking,
+  not per-item-per-read) so decay adjustments are traceable via
+  `export-log`, in `src/models/decay.rs` and/or
+  `src/services/retrieval_fusion.rs`/`consolidation.rs`, per FR-002/SC-006
+  (contradicts)
+- [X] T048 Add an integration test seeding two directly contradicting facts
+  and asserting `pamet::consolidate()` flags the contradiction to the
+  review queue (`ReviewReason::ConsolidationContradiction`) rather than
+  auto-resolving it, in `tests/integration/test_consolidation.rs` per
+  US1/AC2 (partial)
+- [X] T049 Add the Hindsight-unreachable degraded-path test
+  (`run_and_report(..., with_hindsight=true)` with no Hindsight container
+  reachable → `hindsight_available: false`, no failure) that T030 claims
+  already exists but does not, in `tests/integration/test_eval_harness.rs`
+  per US3 Independent Test / spec Edge Cases (contradicts)
+- [X] T050 Add a genuine single-store scale test that accumulates up to
+  1,000 memory items in one store (not 1,000 isolated single-fact probes)
+  and asserts recall/eval-harness performance against that store stays
+  within SC-002's 2-minute bound, in
+  `tests/integration/test_eval_harness.rs` per SC-002 (partial)
+
+### Phase 8 Implementation Notes
+
+- **T047**: decay stays a pure read-time computation (no new per-item
+  column — unchanged design). The gap was purely about FR-002/SC-006
+  traceability: decay now gets ONE `item_decayed` observation event per
+  currently-decayed active item, emitted once per `consolidate` run (not
+  per-read, which would flood the log on every live `recall()` and work
+  against Principle IV's spirit). `ConsolidationSummary` gained an
+  `items_decayed` field; the CLI's `consolidate` output gained `decayed=N`.
+  Verified end-to-end against a real release build: an aged item produces
+  exactly one `item_decayed` event in `export-log` with the correct
+  `item_id`/`multiplier`/`run_id`.
+- **T048**: the contradicting pair is inserted directly (bypassing
+  `remember()`), not via two sequential `pamet::remember()` calls — because
+  `write_policy::evaluate()`'s single-best-match contradiction check would
+  otherwise intercept this exact pair as a write-time
+  `unresolved_contradiction` review (resolving/rejecting it before either
+  item becomes an active, consolidation-visible row). This simulates two
+  facts that entered the store without ever being write-time-compared
+  against each other — exactly the gap consolidation's own exhaustive
+  pairwise scan (`flag_contradictions`) exists to catch. Wording's cosine
+  similarity (≈0.42) was verified in Python against the project's actual
+  hashed bag-of-words algorithm before being hardcoded.
+- **T049**: added `PAMET_HINDSIGHT_BASE_URL` as an env override on
+  `HindsightClient::new` so the degraded-path test can force
+  unreachability deterministically (pointing at the reserved port 1)
+  regardless of whether a real Hindsight instance happens to be running on
+  the test machine. A second test covers the full dual-report path against
+  the real local Hindsight container (skips cleanly if none is reachable —
+  that half of US3's Independent Test is explicitly best-effort).
+- **T050**: added as a second, complementary test alongside the existing
+  1,000-*isolated*-probes test (kept, since it genuinely tests harness-loop
+  throughput) — this one builds ONE store up to ~900+ items (some
+  near-duplicate merging at write time is real, expected behavior, not a
+  test bug) and times `recall`+`consolidate` against that single grown
+  store, which is what SC-002's literal wording describes. Confirmed <20s
+  in a release build (debug builds are much slower due to unoptimized
+  O(n²) float math in write-time similarity scanning — the 2-minute bound
+  is meant for a release build, consistent with how the project is shipped).

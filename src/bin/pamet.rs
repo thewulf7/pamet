@@ -173,8 +173,8 @@ fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
         Command::Consolidate {} => {
             let summary = pamet::consolidate(store)?;
             println!(
-                "consolidation_run={} items={} clusters={} contradictions={}",
-                summary.run_id, summary.items_processed, summary.clusters_formed, summary.contradictions_flagged
+                "consolidation_run={} items={} clusters={} contradictions={} decayed={}",
+                summary.run_id, summary.items_processed, summary.clusters_formed, summary.contradictions_flagged, summary.items_decayed
             );
             Ok(ExitCode::SUCCESS)
         }

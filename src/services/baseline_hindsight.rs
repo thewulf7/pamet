@@ -49,9 +49,18 @@ pub struct RecallResponse {
 }
 
 impl HindsightClient {
+    /// `base_url`, if given, wins; otherwise `PAMET_HINDSIGHT_BASE_URL` wins
+    /// (lets the T049 degraded-path test force an unreachable address
+    /// deterministically, regardless of whatever happens to be running on
+    /// the real default port on the machine running the test); otherwise
+    /// `DEFAULT_BASE_URL`.
     pub fn new(base_url: Option<&str>) -> Self {
+        let resolved = base_url
+            .map(str::to_string)
+            .or_else(|| std::env::var("PAMET_HINDSIGHT_BASE_URL").ok())
+            .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
         Self {
-            base_url: base_url.unwrap_or(DEFAULT_BASE_URL).trim_end_matches('/').to_string(),
+            base_url: resolved.trim_end_matches('/').to_string(),
             client: reqwest::blocking::Client::builder().timeout(REQUEST_TIMEOUT).build().expect(
                 "reqwest client build should never fail with only a timeout configured",
             ),

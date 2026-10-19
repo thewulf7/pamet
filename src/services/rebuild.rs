@@ -49,6 +49,8 @@ fn apply_event(store: &Store, event: &Event) -> Result<()> {
         "cluster_formed" => {} // informational only — no row of its own; summary_created does the writes
         "summary_created" => apply_summary_created(store, event, &payload)?,
         "eval_run_completed" => apply_eval_run_completed(store, &payload)?,
+        "item_decayed" => {} // T047: decay is a pure read-time computation, not stored state —
+                              // the event itself (already re-inserted above) is the full audit trail
         other => return Err(Error::MalformedEvent(format!("unknown event_type '{other}' during replay"))),
     }
     Ok(())
