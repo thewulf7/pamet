@@ -311,3 +311,87 @@ fn query_decisions(store: &Store) -> Vec<String> {
         .map(|r| r.unwrap())
         .collect()
 }
+
+/// T035 (feature 003): FR-002/FR-008's replay-equivalence guarantee ("all
+/// derived state remains rebuildable by replaying it alone, exactly as on
+/// the embedded store") is only ever exercised above with a SQLite-backed
+/// `live` source. This proves the same guarantee holds when `live` itself
+/// is Postgres-backed — `rebuild_from_events` always rebuilds into a fresh
+/// in-memory SQLite store regardless of the source backend, so `rebuilt`'s
+/// own query helpers (`query_all_items`/`query_decisions`) apply unchanged;
+/// only `live`'s side needs Postgres-aware queries.
+#[cfg(feature = "postgres-backend")]
+#[test]
+fn rebuilt_store_matches_live_postgres_backed_store() {
+    let Ok(url) = std::env::var("PAMET_TEST_POSTGRES_URL") else {
+        eprintln!("skipping: PAMET_TEST_POSTGRES_URL not set");
+        return;
+    };
+    {
+        let mut client =
+            postgres::Client::connect(&url, postgres::NoTls).expect("truncate connection");
+        client
+            .batch_execute(
+                "TRUNCATE memory_items, events, write_decisions, review_queue, \
+                 retrieval_events, consolidation_runs, cluster_members, outcome_records, \
+                 eval_results, baseline_reports RESTART IDENTITY CASCADE",
+            )
+            .expect("truncate");
+    }
+
+    let live = match Store::open(&url) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("skipping: Postgres unreachable: {e}");
+            return;
+        }
+    };
+
+    pamet::remember(
+        &live,
+        &Interaction {
+            source_id: "t".into(),
+            text: "Pamet is a memory layer for agents".into(),
+            explicit_remember: true,
+        },
+    )
+    .unwrap();
+    pamet::remember(
+        &live,
+        &Interaction {
+            source_id: "t".into(),
+            text: "Bananas are yellow".into(),
+            explicit_remember: true,
+        },
+    )
+    .unwrap();
+    pamet::recall(&live, "memory layer", None).unwrap();
+
+    let rebuilt = pamet::rebuild_from_events(&live).unwrap();
+
+    let live_events = pamet::export_log(&live, None).unwrap();
+    let rebuilt_events = pamet::export_log(&rebuilt, None).unwrap();
+    assert_eq!(live_events.len(), rebuilt_events.len());
+    for (a, b) in live_events.iter().zip(rebuilt_events.iter()) {
+        assert_eq!(a.id, b.id);
+        assert_eq!(a.event_type, b.event_type);
+    }
+
+    // `rebuilt` is always a fresh SQLite store regardless of `live`'s
+    // backend, so the existing SQLite-dialect query helpers apply directly.
+    let rebuilt_items = query_all_items(&rebuilt);
+    assert_eq!(rebuilt_items.len(), 2);
+
+    let mut client = postgres::Client::connect(&url, postgres::NoTls).unwrap();
+    let live_items: Vec<(String, String)> = client
+        .query("SELECT id, content FROM memory_items ORDER BY id", &[])
+        .unwrap()
+        .iter()
+        .map(|row| (row.get(0), row.get(1)))
+        .collect();
+    assert_eq!(
+        live_items.len(),
+        rebuilt_items.len(),
+        "Postgres-backed live store and its SQLite rebuild must have the same item count"
+    );
+}
