@@ -4,6 +4,10 @@ pub mod consolidation;
 pub mod embedding;
 pub mod eval_harness;
 pub mod events;
+#[cfg(feature = "baseline-hindsight")]
+pub mod hindsight_comparison;
+#[cfg(feature = "baseline-hindsight")]
+pub mod hindsight_migration;
 pub mod memory_items;
 pub mod outcome;
 pub mod rebuild;

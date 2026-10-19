@@ -1,0 +1,20 @@
+[
+  "What is Pamet and why is it being built?",
+  "What's the current status of the Chuck Norris Kubernetes deployment?",
+  "Where does the user's wife work and what career options are being considered?",
+  "What is the SAP Concur Travel Payments team's ADR-002 about continuous deployment?",
+  "How does JWT/JouleBridge/JWL work on the Mac?",
+  "What is the T3 hiring bar for a candidate with Claude Code experience?",
+  "What AWS account and region does the user have T2 access to?",
+  "What is the agile-tools Jira PAT renewal setup?",
+  "How is the Joule Desktop deeplink bypass used to skip MDM?",
+  "What GitHub host and CLI should be used for github.concur.com repos?",
+  "What is the user's scheduling preference for work, and when should things never be scheduled?",
+  "What is Pamet's constitution say about event sourcing?",
+  "What Postgres vendor limit was discovered during Pamet's storage backend work?",
+  "What is the user's approach to security and authorization design patterns?",
+  "What happened with the SAP wiki cookies and authentication pitfalls?",
+  "What does the user think about AI tool claims on a candidate's CV?",
+  "What is the elastic-mcp-dashbuilder Kibana setup for Concur?",
+  "What is the Rust pitfall with reqwest blocking calls in tokio?"
+]

@@ -184,6 +184,8 @@ fn apply_event(store: &Store, event: &Event) -> Result<()> {
         "eval_run_completed" => apply_eval_run_completed(store, &payload)?,
         "item_decayed" => {} // T047: decay is a pure read-time computation, not stored state —
         // the event itself (already re-inserted above) is the full audit trail
+        "hindsight_memory_migrated" => {} // feature 004: pure provenance record, no derived
+        // state of its own — the event itself (already re-inserted above) is the audit trail
         other => {
             return Err(Error::MalformedEvent(format!(
                 "unknown event_type '{other}' during replay"

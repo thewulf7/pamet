@@ -48,6 +48,32 @@ pub struct RecallResponse {
     pub results: Vec<RecallResult>,
 }
 
+/// One memory as returned by `GET .../memories/list` (feature 004's
+/// migration read side) — a superset of what `recall()` returns, since
+/// `list` is also where provenance (`document_id`/`tags`/`fact_type`/
+/// `state`) for the migration ledger comes from. Verified directly against
+/// the live `hermes` bank's real response shape before being hardcoded —
+/// fields not needed by the migration are simply not modeled.
+#[derive(Debug, Clone, Deserialize)]
+pub struct HindsightMemory {
+    pub id: String,
+    pub text: String,
+    #[serde(default)]
+    pub date: Option<String>,
+    pub fact_type: String,
+    #[serde(default)]
+    pub document_id: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub state: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListResponse {
+    items: Vec<HindsightMemory>,
+    total: i64,
+}
+
 impl HindsightClient {
     /// `base_url`, if given, wins; otherwise `PAMET_HINDSIGHT_BASE_URL` wins
     /// (lets the T049 degraded-path test force an unreachable address
@@ -115,9 +141,42 @@ impl HindsightClient {
             .send()
             .map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
-            return Err(format!("hindsight recall failed: HTTP {}", resp.status()));
+            return Err(format!(
+                "hindsight recall failed: HTTP {} — {}",
+                resp.status(),
+                resp.text().unwrap_or_default()
+            ));
         }
         let parsed: RecallResponse = resp.json().map_err(|e| e.to_string())?;
         Ok(parsed.results)
+    }
+
+    /// One page of `GET .../memories/list` (feature 004, FR-001). Callers
+    /// paginate by bumping `offset` by `limit` until the returned page is
+    /// shorter than `limit` (or `offset >= total`).
+    pub fn list_memories_page(
+        &self,
+        bank_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<HindsightMemory>, i64), String> {
+        let resp = self
+            .client
+            .get(format!(
+                "{}/v1/default/banks/{}/memories/list",
+                self.base_url, bank_id
+            ))
+            .query(&[("limit", limit), ("offset", offset)])
+            .send()
+            .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!(
+                "hindsight list failed: HTTP {} — {}",
+                resp.status(),
+                resp.text().unwrap_or_default()
+            ));
+        }
+        let parsed: ListResponse = resp.json().map_err(|e| e.to_string())?;
+        Ok((parsed.items, parsed.total))
     }
 }
