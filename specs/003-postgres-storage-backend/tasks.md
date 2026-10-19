@@ -186,29 +186,33 @@ Scenario 3 passes with zero network reachability)
 - [X] T027 [P] Run `cargo test` (default features) and
   `cargo test --features postgres-backend` (with a real local `pgvector` container up);
   confirm all green
-- [ ] T028 Run quickstart.md Scenarios 1-5 end-to-end against a real build; update
+- [X] T028 Run quickstart.md Scenarios 1-5 end-to-end against a real build; update
   quickstart.md with actual observed output where it diverges from what was speculated
-  during planning
-- [ ] T029 [P] Add the `migrate` subcommand and Postgres backend selection to `README.md`
+  during planning. Also found and fixed a real doc bug: the originally-drafted Scenario 2
+  `migrate` command didn't parse (`--db <source> migrate --to <target>` instead of the
+  actual `migrate --from <source> --to <target>`).
+- [X] T029 [P] Add the `migrate` subcommand and Postgres backend selection to `README.md`
   and `docs/GUIDE.md`
-- [ ] T030 [P] Mark all tasks in this file `[X]`, and append an "Implementation Notes"
+- [X] T030 [P] Mark all tasks in this file `[X]`, and append an "Implementation Notes"
   section recording any actual-vs-planned deviations (mirroring Phase 1/2's precedent)
 
 ---
 
 ## Implementation Notes (T030 — actual vs. planned)
 
-**Done (26/30)**: T001-T027. Core architecture, all US1 per-service
+**Done (30/30)**: every task complete. Core architecture, all US1
 Postgres-dialect branches, US2's full migration mechanism (including the
-refuse-non-empty-target guard, T020), and both Polish-phase tests (T024,
-T025) are implemented and verified against a real local
-`pgvector/pgvector:pg16` container (not mocked) —
-`remember`/`recall`/`consolidate`/`tombstone`/`review` round-trip correctly on
-Postgres, `pamet migrate` round-trips a real item through `recall()` on the
-target AND correctly refuses a second run against that now-non-empty target,
-a `postgres://` URL on a build without `postgres-backend` fails clearly
-(T024), and all pre-existing Phase 1/2 tests still pass unchanged on the
-default (no `postgres-backend`) build.
+refuse-non-empty-target guard, T020), both Polish-phase tests (T024, T025)
+at their real scale, and docs (T028, T029) are implemented and verified
+against a real local `pgvector/pgvector:pg16` container (not mocked) —
+`remember`/`recall`/`consolidate`/`tombstone`/`review` round-trip correctly
+on Postgres, `pamet migrate` round-trips a real item through `recall()` on
+the target AND correctly refuses a second run against that now-non-empty
+target, a `postgres://` URL on a build without `postgres-backend` fails
+clearly (T024), all 5 quickstart.md scenarios were actually run end-to-end
+with real output recorded (T028), README.md/docs/GUIDE.md document the
+Postgres backend and `migrate` (T029), and all pre-existing Phase 1/2 tests
+still pass unchanged on the default (no `postgres-backend`) build.
 
 **Two real bugs found by the live-container tests, not test artifacts**:
 1. The first version of `rebuild_into()` replayed events with their original,
@@ -244,10 +248,7 @@ default (no `postgres-backend`) build.
    the frozen embedder's dimension in this feature. Test and spec now both
    assert 200ms.
 
-**Not done — genuine gaps, not silently skipped**:
-- **T028/T029**: quickstart.md was not re-run end-to-end to replace its
-  speculated output with real observed output, and README.md/docs/GUIDE.md were
-  not updated to mention the Postgres backend or `migrate` subcommand.
+**Not done**: nothing — all 30 tasks complete.
 
 **Disclosed deviations within "done" tasks**:
 - T019/T020: no separate `src/services/migrate.rs` module exists — the

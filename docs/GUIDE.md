@@ -16,12 +16,17 @@ cargo build --release --features mcp
 ```
 
 Binaries land in `target/release/`:
-- `pamet` — the CLI (`remember`, `recall`, `outcome`, `review`, `forget`, `export-log`).
+- `pamet` — the CLI (`remember`, `recall`, `outcome`, `review`, `forget`, `export-log`, `migrate`).
 - `pamet-mcp` — the MCP server (stdio transport), only with `--features mcp`.
 
 ## 2. Using the CLI directly
 
-Every command takes `--db <path>` (defaults to `./pamet.db`, created on first write).
+Every command takes `--db <path>` (defaults to `./pamet.db`, created on first write). `--db`
+also accepts a `postgres://`/`postgresql://` URL (requires building with
+`--features postgres-backend`) to use Pamet's optional production-grade Postgres+pgvector
+backend instead of the embedded SQLite file — same commands, same behavior, selected purely by
+the connection string (see `specs/003-postgres-storage-backend/quickstart.md`). The embedded
+SQLite path is unaffected and remains the default: adopting Postgres is opt-in, not required.
 
 ```sh
 # Store something (rule-based write policy decides store/merge/supersede/skip/review)
@@ -42,6 +47,12 @@ pamet --db ./pamet.db forget --item-id <uuid>
 
 # Dump the full append-only event log (newline-delimited JSON, replay-ordered)
 pamet --db ./pamet.db export-log
+
+# Feature 003: move an existing store onto the Postgres backend — note
+# migrate takes --from/--to, not the global --db (requires --features
+# postgres-backend). Refuses to run if --to already has data (safe re-run
+# means a fresh target, never a partial merge).
+pamet migrate --from ./pamet.db --to "postgres://user:pass@host:5432/pamet"
 
 # Phase 2: run one consolidation pass (clusters near-duplicates into
 # summaries, flags contradictions for review, non-destructive and never
