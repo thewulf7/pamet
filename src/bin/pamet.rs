@@ -59,6 +59,16 @@ enum Command {
         #[arg(long)]
         report_out: Option<String>,
     },
+    /// Migrate every event from `--from` into `--to`, replaying through the
+    /// exact same event-sourced rebuild machinery `pamet` uses to verify a
+    /// store against its own log (Constitution Principle I) — not a bespoke
+    /// copy tool. `--to` may be a fresh or existing store of either backend.
+    Migrate {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -87,6 +97,20 @@ fn parse_decision(s: &str) -> Option<Decision> {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+
+    // `migrate` opens its own two stores (--from/--to) instead of the
+    // default `--db` store, and must not fail just because `--db`'s file
+    // doesn't exist.
+    if let Command::Migrate { from, to } = &cli.command {
+        return match run_migrate(from, to) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::from(1)
+            }
+        };
+    }
+
     let store = match Store::open(&cli.db) {
         Ok(s) => s,
         Err(e) => {
@@ -105,10 +129,26 @@ fn main() -> ExitCode {
     }
 }
 
+fn run_migrate(from: &str, to: &str) -> Result<ExitCode, pamet::Error> {
+    let source = Store::open(from)?;
+    let target = Store::open(to)?;
+    let n = pamet::services::rebuild::rebuild_into(&source, &target)?;
+    println!("migrated {n} events from {from} to {to}");
+    Ok(ExitCode::SUCCESS)
+}
+
 fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
     match command {
-        Command::Remember { text, source_id, explicit_remember } => {
-            let interaction = Interaction { source_id, text, explicit_remember };
+        Command::Remember {
+            text,
+            source_id,
+            explicit_remember,
+        } => {
+            let interaction = Interaction {
+                source_id,
+                text,
+                explicit_remember,
+            };
             let decisions = pamet::remember(store, &interaction)?;
             for d in decisions {
                 println!(
@@ -126,33 +166,40 @@ fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
                 println!("no relevant memory found");
             } else {
                 for item in &result.items {
-                    println!(
-                        "{} [{}] {}",
-                        item.id,
-                        item.item_type.as_str(),
-                        item.content
-                    );
+                    println!("{} [{}] {}", item.id, item.item_type.as_str(), item.content);
                 }
             }
             eprintln!("event_id={}", result.event_id);
             Ok(ExitCode::SUCCESS)
         }
-        Command::Outcome { event_id, item_id, used } => {
+        Command::Outcome {
+            event_id,
+            item_id,
+            used,
+        } => {
             pamet::report_outcome(store, event_id, &item_id, used)?;
             println!("ok");
             Ok(ExitCode::SUCCESS)
         }
         Command::Review { action } => match action {
             ReviewAction::List { status } => {
-                let rows = pamet::services::review::list(store, status.as_deref().or(Some("pending")))?;
+                let rows =
+                    pamet::services::review::list(store, status.as_deref().or(Some("pending")))?;
                 for r in rows {
-                    println!("{} wd={} reason={} status={}", r.id, r.write_decision_id, r.reason, r.status);
+                    println!(
+                        "{} wd={} reason={} status={}",
+                        r.id, r.write_decision_id, r.reason, r.status
+                    );
                 }
                 Ok(ExitCode::SUCCESS)
             }
-            ReviewAction::Resolve { review_id, decision } => {
-                let decision = parse_decision(&decision)
-                    .ok_or_else(|| pamet::Error::Validation(format!("invalid decision '{decision}'")))?;
+            ReviewAction::Resolve {
+                review_id,
+                decision,
+            } => {
+                let decision = parse_decision(&decision).ok_or_else(|| {
+                    pamet::Error::Validation(format!("invalid decision '{decision}'"))
+                })?;
                 pamet::resolve_review(store, review_id, decision)?;
                 println!("ok");
                 Ok(ExitCode::SUCCESS)
@@ -174,26 +221,43 @@ fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
             let summary = pamet::consolidate(store)?;
             println!(
                 "consolidation_run={} items={} clusters={} contradictions={} decayed={}",
-                summary.run_id, summary.items_processed, summary.clusters_formed, summary.contradictions_flagged, summary.items_decayed
+                summary.run_id,
+                summary.items_processed,
+                summary.clusters_formed,
+                summary.contradictions_flagged,
+                summary.items_decayed
             );
             Ok(ExitCode::SUCCESS)
         }
-        Command::Eval { fixtures, with_hindsight, report_out } => {
+        Command::Eval {
+            fixtures,
+            with_hindsight,
+            report_out,
+        } => {
             let report = pamet::services::eval_harness::run_and_report(
                 store,
                 std::path::Path::new(&fixtures),
                 with_hindsight,
             )?;
             let out_path = report_out.unwrap_or_else(|| {
-                format!("./pamet-eval-report-{}.json", chrono::Utc::now().format("%Y%m%d%H%M%S"))
+                format!(
+                    "./pamet-eval-report-{}.json",
+                    chrono::Utc::now().format("%Y%m%d%H%M%S")
+                )
             });
-            pamet::services::eval_harness::write_report_file(&report, std::path::Path::new(&out_path))?;
+            pamet::services::eval_harness::write_report_file(
+                &report,
+                std::path::Path::new(&out_path),
+            )?;
             println!("report written to {out_path}");
             if pamet::services::eval_harness::pamet_report_all_passed(&report) {
                 Ok(ExitCode::SUCCESS)
             } else {
                 Ok(ExitCode::from(1))
             }
+        }
+        Command::Migrate { .. } => {
+            unreachable!("migrate is handled directly in main() before run()")
         }
     }
 }

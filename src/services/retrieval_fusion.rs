@@ -3,7 +3,7 @@
 
 use crate::error::Result;
 use crate::models::RankedCandidate;
-use crate::storage::Store;
+use crate::storage::{Backend, Store};
 use chrono::Utc;
 use rusqlite::params;
 use std::collections::HashMap;
@@ -39,14 +39,28 @@ pub fn apply_decay(
 ) -> Result<()> {
     let now = Utc::now();
     for candidate in candidates.iter_mut() {
-        let row: Option<(String, Option<String>, i64)> = store
-            .conn
-            .query_row(
-                "SELECT created_at, last_used_at, use_count FROM memory_items WHERE id = ?1",
-                params![candidate.item_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .ok();
+        let row: Option<(String, Option<String>, i64)> = match &store.backend {
+            Backend::Sqlite(conn) => conn
+                .query_row(
+                    "SELECT created_at, last_used_at, use_count FROM memory_items WHERE id = ?1",
+                    params![candidate.item_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .ok(),
+            #[cfg(feature = "postgres-backend")]
+            Backend::Postgres(pool) => {
+                let mut conn = match pool.get() {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                conn.query_one(
+                    "SELECT created_at, last_used_at, use_count FROM memory_items WHERE id = $1",
+                    &[&candidate.item_id],
+                )
+                .ok()
+                .map(|row| (row.get(0), row.get(1), row.get::<_, i32>(2) as i64))
+            }
+        };
         if let Some((created_at, last_used_at, use_count)) = row {
             let m = crate::models::decay::multiplier(
                 &created_at,
@@ -70,12 +84,24 @@ mod tests {
     #[test]
     fn item_ranked_in_both_lists_wins() {
         let vector = vec![
-            RankedCandidate { item_id: "a".into(), score: 0.9 },
-            RankedCandidate { item_id: "b".into(), score: 0.5 },
+            RankedCandidate {
+                item_id: "a".into(),
+                score: 0.9,
+            },
+            RankedCandidate {
+                item_id: "b".into(),
+                score: 0.5,
+            },
         ];
         let keyword = vec![
-            RankedCandidate { item_id: "b".into(), score: 10.0 },
-            RankedCandidate { item_id: "a".into(), score: 1.0 },
+            RankedCandidate {
+                item_id: "b".into(),
+                score: 10.0,
+            },
+            RankedCandidate {
+                item_id: "a".into(),
+                score: 1.0,
+            },
         ];
         let fused = fuse(&[&vector, &keyword]);
         // "a" is rank 1 in vector and rank 2 in keyword; "b" is rank 2 and rank 1.
@@ -87,7 +113,10 @@ mod tests {
 
     #[test]
     fn item_found_only_by_one_method_still_surfaces() {
-        let vector = vec![RankedCandidate { item_id: "only-vector".into(), score: 0.99 }];
+        let vector = vec![RankedCandidate {
+            item_id: "only-vector".into(),
+            score: 0.99,
+        }];
         let keyword: Vec<RankedCandidate> = vec![];
         let fused = fuse(&[&vector, &keyword]);
         assert_eq!(fused[0].item_id, "only-vector");

@@ -11,7 +11,11 @@ fn remember_produces_exactly_one_decision_per_candidate() {
         explicit_remember: false,
     };
     let decisions = pamet::remember(&store, &interaction).unwrap();
-    assert_eq!(decisions.len(), 1, "exactly one WriteDecision per candidate (spec SC-001)");
+    assert_eq!(
+        decisions.len(),
+        1,
+        "exactly one WriteDecision per candidate (spec SC-001)"
+    );
     assert_eq!(decisions[0].decision, Decision::Store);
     assert!(decisions[0].resulting_item_id.is_some());
 }

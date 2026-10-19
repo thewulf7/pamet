@@ -4,6 +4,7 @@ pub mod consolidation;
 pub mod embedding;
 pub mod eval_harness;
 pub mod events;
+pub mod memory_items;
 pub mod outcome;
 pub mod rebuild;
 pub mod retrieval_fusion;

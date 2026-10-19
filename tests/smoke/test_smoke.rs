@@ -17,7 +17,10 @@ fn binary_starts_and_prints_help() {
         .expect("failed to run pamet --help");
     assert!(output.status.success(), "pamet --help must exit 0");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Usage"), "help output should mention usage: {stdout}");
+    assert!(
+        stdout.contains("Usage"),
+        "help output should mention usage: {stdout}"
+    );
 }
 
 #[test]
@@ -32,10 +35,21 @@ fn basic_remember_then_recall_roundtrip() {
         .expect("failed to run pamet remember");
     assert!(remember.status.success(), "remember must exit 0");
     let remember_stdout = String::from_utf8_lossy(&remember.stdout);
-    assert!(remember_stdout.starts_with("store"), "expected a store decision: {remember_stdout}");
+    assert!(
+        remember_stdout.starts_with("store"),
+        "expected a store decision: {remember_stdout}"
+    );
 
     let recall = Command::new(bin())
-        .args(["--db", db_path, "recall", "--query", "Smoke test", "--budget", "3"])
+        .args([
+            "--db",
+            db_path,
+            "recall",
+            "--query",
+            "Smoke test",
+            "--budget",
+            "3",
+        ])
         .output()
         .expect("failed to run pamet recall");
     assert!(recall.status.success(), "recall must exit 0");

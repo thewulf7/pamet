@@ -127,42 +127,7 @@ pub fn evaluate(store: &Store, candidate: &Candidate) -> Result<PolicyOutcome> {
 }
 
 fn active_items(store: &Store) -> Result<Vec<MemoryItem>> {
-    let mut stmt = store.conn.prepare(
-        "SELECT id, item_type, content, embedding_json, entities_json, confidence, \
-                provenance_event_id, supersedes_id, created_at, last_used_at, use_count, tombstoned_at \
-         FROM memory_items WHERE tombstoned_at IS NULL",
-    )?;
-    let mut out = Vec::new();
-    let rows = stmt.query_map([], |row| {
-        let embedding_json: String = row.get(3)?;
-        let entities_json: Option<String> = row.get(4)?;
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
-            embedding_json, entities_json, row.get::<_, f64>(5)?, row.get::<_, i64>(6)?,
-            row.get::<_, Option<String>>(7)?, row.get::<_, String>(8)?,
-            row.get::<_, Option<String>>(9)?, row.get::<_, i64>(10)?,
-            row.get::<_, Option<String>>(11)?))
-    })?;
-    for r in rows {
-        let (id, item_type, content, embedding_json, entities_json, confidence,
-             provenance_event_id, supersedes_id, created_at, last_used_at, use_count, tombstoned_at) = r?;
-        out.push(MemoryItem {
-            id,
-            item_type: ItemType::from_str(&item_type).unwrap_or(ItemType::Fact),
-            content,
-            embedding: serde_json::from_str(&embedding_json).unwrap_or_default(),
-            entities: entities_json
-                .and_then(|j| serde_json::from_str(&j).ok())
-                .unwrap_or_default(),
-            confidence: confidence as f32,
-            provenance_event_id,
-            supersedes_id,
-            created_at,
-            last_used_at,
-            use_count,
-            tombstoned_at,
-        });
-    }
-    Ok(out)
+    crate::services::memory_items::active_items_where(store, "")
 }
 
 /// Keyword-overlap contradiction heuristic: shares a subject (token overlap)
@@ -176,8 +141,9 @@ pub(crate) fn detect_contradiction(candidate: &Candidate, best_match: Option<&Me
         Some(i) => i,
         None => return false,
     };
-    let cand_tokens: std::collections::HashSet<_> =
-        embedding::tokenize(&candidate.content).into_iter().collect();
+    let cand_tokens: std::collections::HashSet<_> = embedding::tokenize(&candidate.content)
+        .into_iter()
+        .collect();
     let item_tokens: std::collections::HashSet<_> =
         embedding::tokenize(&item.content).into_iter().collect();
     let shared = cand_tokens.intersection(&item_tokens).count();
@@ -191,5 +157,8 @@ pub(crate) fn detect_contradiction(candidate: &Candidate, best_match: Option<&Me
 fn is_low_value(content: &str) -> bool {
     let low_value_markers = ["lol", "ok", "k", "haha", "hi", "hello"];
     let tokens = embedding::tokenize(content);
-    !tokens.is_empty() && tokens.iter().all(|t| low_value_markers.contains(&t.as_str()))
+    !tokens.is_empty()
+        && tokens
+            .iter()
+            .all(|t| low_value_markers.contains(&t.as_str()))
 }

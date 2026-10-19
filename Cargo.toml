@@ -30,10 +30,15 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"], opt
 schemars = { version = "0.8", optional = true }
 anyhow = { version = "1", optional = true }
 reqwest = { version = "0.12", features = ["blocking", "json"], optional = true }
+postgres = { version = "0.19", optional = true }
+r2d2 = { version = "0.8", optional = true }
+r2d2_postgres = { version = "0.18", optional = true }
+pgvector = { version = "0.4", features = ["postgres"], optional = true }
 
 [features]
 mcp = ["rmcp", "tokio", "schemars", "anyhow"]
 baseline-hindsight = ["reqwest"]
+postgres-backend = ["postgres", "r2d2", "r2d2_postgres", "pgvector"]
 
 [dev-dependencies]
 tempfile = "3"
@@ -93,3 +98,18 @@ path = "tests/integration/test_eval_harness.rs"
 [[test]]
 name = "e2e_consolidation"
 path = "tests/e2e/test_consolidation_e2e.rs"
+
+[[test]]
+name = "e2e_postgres_concurrency"
+path = "tests/e2e/test_postgres_concurrency.rs"
+required-features = ["postgres-backend"]
+
+[[test]]
+name = "e2e_migration"
+path = "tests/e2e/test_migration_e2e.rs"
+required-features = ["postgres-backend"]
+
+[[test]]
+name = "integration_postgres_scale"
+path = "tests/integration/test_postgres_scale.rs"
+required-features = ["postgres-backend"]

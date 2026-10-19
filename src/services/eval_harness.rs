@@ -86,9 +86,10 @@ fn run_hindsight(probe_set: &EvalProbeSet) -> (bool, Option<SystemReport>) {
                 .recall(&bank_id, query)
                 .map(|rs| rs.iter().any(|r| r.text.contains(value.as_str())))
                 .unwrap_or(false),
-            (ProbeAction::Recall { query }, ExpectedOutcome::NoRelevantMemory) => {
-                client.recall(&bank_id, query).map(|rs| rs.is_empty()).unwrap_or(true)
-            }
+            (ProbeAction::Recall { query }, ExpectedOutcome::NoRelevantMemory) => client
+                .recall(&bank_id, query)
+                .map(|rs| rs.is_empty())
+                .unwrap_or(true),
             (ProbeAction::Recall { query }, ExpectedOutcome::DoesNotContain { value }) => client
                 .recall(&bank_id, query)
                 .map(|rs| !rs.iter().any(|r| r.text.contains(value.as_str())))
@@ -107,7 +108,9 @@ fn run_hindsight(_probe_set: &EvalProbeSet) -> (bool, Option<SystemReport>) {
 }
 
 fn record(categories: &mut SystemReport, probe: &EvalProbe, passed: bool, latency_ms: f64) {
-    let entry = categories.entry(probe.category.as_str().to_string()).or_insert_with(CategoryScore::default);
+    let entry = categories
+        .entry(probe.category.as_str().to_string())
+        .or_insert_with(CategoryScore::default);
     entry.total += 1;
     if passed {
         entry.passed += 1;
@@ -121,7 +124,10 @@ fn run_one_probe(store: &Store, probe: &EvalProbe) -> Result<bool> {
     match (&probe.action, &probe.expected) {
         (ProbeAction::Recall { query }, ExpectedOutcome::ContainsContent { value }) => {
             let result = crate::recall(store, query, None)?;
-            Ok(result.items.iter().any(|i| i.content.contains(value.as_str())))
+            Ok(result
+                .items
+                .iter()
+                .any(|i| i.content.contains(value.as_str())))
         }
         (ProbeAction::Recall { query }, ExpectedOutcome::NoRelevantMemory) => {
             let result = crate::recall(store, query, None)?;
@@ -129,12 +135,19 @@ fn run_one_probe(store: &Store, probe: &EvalProbe) -> Result<bool> {
         }
         (ProbeAction::Recall { query }, ExpectedOutcome::DoesNotContain { value }) => {
             let result = crate::recall(store, query, None)?;
-            Ok(!result.items.iter().any(|i| i.content.contains(value.as_str())))
+            Ok(!result
+                .items
+                .iter()
+                .any(|i| i.content.contains(value.as_str())))
         }
         (ProbeAction::Remember { text }, _) => {
             let outcomes = crate::remember(
                 store,
-                &Interaction { source_id: "probe".into(), text: text.clone(), explicit_remember: true },
+                &Interaction {
+                    source_id: "probe".into(),
+                    text: text.clone(),
+                    explicit_remember: true,
+                },
             )?;
             Ok(!outcomes.is_empty())
         }
@@ -151,8 +164,11 @@ pub fn run_and_report(
 ) -> Result<BaselineReport> {
     let probe_set = load_probe_set(fixtures_path)?;
     let (pamet, pamet_outcomes) = run_pamet_detailed(&probe_set)?;
-    let (hindsight_available, hindsight) =
-        if with_hindsight { run_hindsight(&probe_set) } else { (false, None) };
+    let (hindsight_available, hindsight) = if with_hindsight {
+        run_hindsight(&probe_set)
+    } else {
+        (false, None)
+    };
 
     let report = BaselineReport {
         id: Uuid::new_v4().to_string(),
@@ -163,7 +179,13 @@ pub fn run_and_report(
         hindsight,
     };
     persist_report(store, &report, &pamet_outcomes)?;
-    persist_eval_results(store, &report.id, &probe_set.version, &pamet_outcomes, &report.generated_at)?;
+    persist_eval_results(
+        store,
+        &report.id,
+        &probe_set.version,
+        &pamet_outcomes,
+        &report.generated_at,
+    )?;
     Ok(report)
 }
 
@@ -177,26 +199,51 @@ fn persist_eval_results(
     ran_at: &str,
 ) -> Result<()> {
     for outcome in outcomes {
-        store.conn.execute(
-            "INSERT INTO eval_results (id, run_id, probe_id, category, probe_set_version, passed, ran_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                Uuid::new_v4().to_string(),
-                run_id,
-                outcome.probe_id,
-                outcome.category,
-                probe_set_version,
-                outcome.passed as i64,
-                ran_at,
-            ],
-        )?;
+        match &store.backend {
+            crate::storage::Backend::Sqlite(conn) => {
+                conn.execute(
+                    "INSERT INTO eval_results (id, run_id, probe_id, category, probe_set_version, passed, ran_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        Uuid::new_v4().to_string(),
+                        run_id,
+                        outcome.probe_id,
+                        outcome.category,
+                        probe_set_version,
+                        outcome.passed as i64,
+                        ran_at,
+                    ],
+                )?;
+            }
+            #[cfg(feature = "postgres-backend")]
+            crate::storage::Backend::Postgres(pool) => {
+                let mut conn = pool.get()?;
+                conn.execute(
+                    "INSERT INTO eval_results (id, run_id, probe_id, category, probe_set_version, passed, ran_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                    &[
+                        &Uuid::new_v4().to_string(),
+                        &run_id,
+                        &outcome.probe_id,
+                        &outcome.category,
+                        &probe_set_version,
+                        &(outcome.passed as i32),
+                        &ran_at,
+                    ],
+                )?;
+            }
+        }
     }
     Ok(())
 }
 
 fn persist_report(store: &Store, report: &BaselineReport, outcomes: &[ProbeOutcome]) -> Result<()> {
     let pamet_json = serde_json::to_string(&report.pamet)?;
-    let hindsight_json = report.hindsight.as_ref().map(serde_json::to_string).transpose()?;
+    let hindsight_json = report
+        .hindsight
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     let outcomes_json: Vec<serde_json::Value> = outcomes
         .iter()
         .map(|o| serde_json::json!({
@@ -213,20 +260,37 @@ fn persist_report(store: &Store, report: &BaselineReport, outcomes: &[ProbeOutco
             "probe_outcomes": outcomes_json,
         }),
     )?;
-    store.conn.execute(
-        "INSERT INTO baseline_reports (id, probe_set_version, generated_at, pamet_results_json, \
-            hindsight_results_json, hindsight_available) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            report.id, report.probe_set_version, report.generated_at, pamet_json,
-            hindsight_json, report.hindsight_available as i64
-        ],
-    )?;
+    match &store.backend {
+        crate::storage::Backend::Sqlite(conn) => {
+            conn.execute(
+                "INSERT INTO baseline_reports (id, probe_set_version, generated_at, pamet_results_json, \
+                    hindsight_results_json, hindsight_available) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    report.id, report.probe_set_version, report.generated_at, pamet_json,
+                    hindsight_json, report.hindsight_available as i64
+                ],
+            )?;
+        }
+        #[cfg(feature = "postgres-backend")]
+        crate::storage::Backend::Postgres(pool) => {
+            let mut conn = pool.get()?;
+            conn.execute(
+                "INSERT INTO baseline_reports (id, probe_set_version, generated_at, pamet_results_json, \
+                    hindsight_results_json, hindsight_available) VALUES ($1, $2, $3, $4, $5, $6)",
+                &[
+                    &report.id, &report.probe_set_version, &report.generated_at, &pamet_json,
+                    &hindsight_json, &(report.hindsight_available as i32)
+                ],
+            )?;
+        }
+    }
     Ok(())
 }
 
 pub fn write_report_file(report: &BaselineReport, path: &Path) -> Result<()> {
     let json = serde_json::to_string_pretty(report)?;
-    std::fs::write(path, json).map_err(|e| Error::Validation(format!("failed to write report to {path:?}: {e}")))?;
+    std::fs::write(path, json)
+        .map_err(|e| Error::Validation(format!("failed to write report to {path:?}: {e}")))?;
     Ok(())
 }
 

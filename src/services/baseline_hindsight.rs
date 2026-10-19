@@ -61,9 +61,10 @@ impl HindsightClient {
             .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
         Self {
             base_url: resolved.trim_end_matches('/').to_string(),
-            client: reqwest::blocking::Client::builder().timeout(REQUEST_TIMEOUT).build().expect(
-                "reqwest client build should never fail with only a timeout configured",
-            ),
+            client: reqwest::blocking::Client::builder()
+                .timeout(REQUEST_TIMEOUT)
+                .build()
+                .expect("reqwest client build should never fail with only a timeout configured"),
         }
     }
 
@@ -79,10 +80,16 @@ impl HindsightClient {
     }
 
     pub fn retain(&self, bank_id: &str, content: &str) -> Result<(), String> {
-        let body = RetainRequest { items: vec![RetainItem { content }], is_async: false };
+        let body = RetainRequest {
+            items: vec![RetainItem { content }],
+            is_async: false,
+        };
         let resp = self
             .client
-            .post(format!("{}/v1/default/banks/{}/memories", self.base_url, bank_id))
+            .post(format!(
+                "{}/v1/default/banks/{}/memories",
+                self.base_url, bank_id
+            ))
             .json(&body)
             .send()
             .map_err(|e| e.to_string())?;
@@ -94,10 +101,16 @@ impl HindsightClient {
     }
 
     pub fn recall(&self, bank_id: &str, query: &str) -> Result<Vec<RecallResult>, String> {
-        let body = RecallRequest { query, budget: "mid" };
+        let body = RecallRequest {
+            query,
+            budget: "mid",
+        };
         let resp = self
             .client
-            .post(format!("{}/v1/default/banks/{}/memories/recall", self.base_url, bank_id))
+            .post(format!(
+                "{}/v1/default/banks/{}/memories/recall",
+                self.base_url, bank_id
+            ))
             .json(&body)
             .send()
             .map_err(|e| e.to_string())?;

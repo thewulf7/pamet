@@ -7,8 +7,10 @@
 
 use pamet::{Decision, Interaction, Store};
 use rmcp::{
-    ServerHandler, ServiceExt, model::{ServerCapabilities, ServerInfo},
-    schemars, tool, transport::stdio,
+    model::{ServerCapabilities, ServerInfo},
+    schemars, tool,
+    transport::stdio,
+    ServerHandler, ServiceExt,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -49,9 +51,11 @@ struct PametMcp {
 
 #[tool(tool_box)]
 impl PametMcp {
-    #[tool(description = "Store a new memory, merge/supersede an existing one, or skip it — \
+    #[tool(
+        description = "Store a new memory, merge/supersede an existing one, or skip it — \
         decided by pamet's rule-based write policy. Call this whenever the conversation \
-        contains a fact, preference, or decision worth remembering across sessions.")]
+        contains a fact, preference, or decision worth remembering across sessions."
+    )]
     fn remember(&self, #[tool(aggr)] req: RememberRequest) -> String {
         let store = self.store.lock().unwrap();
         let interaction = Interaction {
@@ -77,9 +81,11 @@ impl PametMcp {
         }
     }
 
-    #[tool(description = "Retrieve memories relevant to a query, ranked by hybrid \
+    #[tool(
+        description = "Retrieve memories relevant to a query, ranked by hybrid \
         (semantic + keyword) search. Call this before answering anything that might \
-        depend on something remembered earlier in a prior session.")]
+        depend on something remembered earlier in a prior session."
+    )]
     fn recall(&self, #[tool(aggr)] req: RecallRequest) -> String {
         let store = self.store.lock().unwrap();
         match pamet::recall(&store, &req.query, req.budget) {
@@ -99,9 +105,11 @@ impl PametMcp {
         }
     }
 
-    #[tool(description = "Report back whether a memory returned by `recall` was actually \
+    #[tool(
+        description = "Report back whether a memory returned by `recall` was actually \
         used in the answer. This closes the loop that future learned components will be \
-        trained on (pamet's whole MVP exists to generate this training signal).")]
+        trained on (pamet's whole MVP exists to generate this training signal)."
+    )]
     fn outcome(&self, #[tool(aggr)] req: OutcomeRequest) -> String {
         let store = self.store.lock().unwrap();
         match pamet::report_outcome(&store, req.event_id, &req.item_id, req.used) {
@@ -148,7 +156,9 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "./pamet.db".to_string());
 
     let store = Store::open(&db_path).map_err(|e| anyhow::anyhow!("failed to open store: {e}"))?;
-    let server = PametMcp { store: std::sync::Arc::new(Mutex::new(store)) };
+    let server = PametMcp {
+        store: std::sync::Arc::new(Mutex::new(store)),
+    };
     let running = server.serve(stdio()).await?;
     running.waiting().await?;
     Ok(())

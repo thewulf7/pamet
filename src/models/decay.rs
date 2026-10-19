@@ -49,7 +49,10 @@ mod tests {
     fn fresh_item_not_decayed() {
         let now = Utc::now();
         let created = now.to_rfc3339();
-        assert_eq!(multiplier(&created, None, 0, now, DECAY_AFTER_DAYS, DECAY_PENALTY), 1.0);
+        assert_eq!(
+            multiplier(&created, None, 0, now, DECAY_AFTER_DAYS, DECAY_PENALTY),
+            1.0
+        );
     }
 
     #[test]
@@ -68,7 +71,14 @@ mod tests {
         let created = (now - Duration::days(DECAY_AFTER_DAYS + 10)).to_rfc3339();
         let last_used = now.to_rfc3339();
         assert_eq!(
-            multiplier(&created, Some(&last_used), 3, now, DECAY_AFTER_DAYS, DECAY_PENALTY),
+            multiplier(
+                &created,
+                Some(&last_used),
+                3,
+                now,
+                DECAY_AFTER_DAYS,
+                DECAY_PENALTY
+            ),
             1.0
         );
     }

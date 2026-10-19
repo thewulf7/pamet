@@ -7,7 +7,11 @@ fn tombstoned_item_disappears_from_recall_but_remains_inspectable() {
     let store = Store::open_in_memory().unwrap();
     let decisions = pamet::remember(
         &store,
-        &Interaction { source_id: "t".into(), text: "Pamet is written in Rust".into(), explicit_remember: true },
+        &Interaction {
+            source_id: "t".into(),
+            text: "Pamet is written in Rust".into(),
+            explicit_remember: true,
+        },
     )
     .unwrap();
     let item_id = decisions[0].resulting_item_id.clone().unwrap();
@@ -29,20 +33,27 @@ fn tombstoned_item_disappears_from_recall_but_remains_inspectable() {
     // But its history remains inspectable (SC-005): a tombstone event exists
     // referencing it, and the row itself is not hard-deleted.
     let events = pamet::export_log(&store, None).unwrap();
-    let tombstone_events: Vec<_> = events.iter().filter(|e| e.event_type == "tombstone").collect();
+    let tombstone_events: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == "tombstone")
+        .collect();
     assert_eq!(tombstone_events.len(), 1);
-    let payload: serde_json::Value = serde_json::from_str(&tombstone_events[0].payload_json).unwrap();
+    let payload: serde_json::Value =
+        serde_json::from_str(&tombstone_events[0].payload_json).unwrap();
     assert_eq!(payload["item_id"].as_str().unwrap(), item_id);
 
     let still_there: i64 = store
-        .conn
+        .conn()
         .query_row(
             "SELECT COUNT(*) FROM memory_items WHERE id = ?1 AND tombstoned_at IS NOT NULL",
             rusqlite::params![item_id],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(still_there, 1, "tombstoned row must remain in memory_items, not be deleted");
+    assert_eq!(
+        still_there, 1,
+        "tombstoned row must remain in memory_items, not be deleted"
+    );
 }
 
 #[test]

@@ -5,15 +5,24 @@ use pamet::storage::Store;
 use std::path::Path;
 
 fn fixtures_path() -> &'static Path {
-    Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/eval_probes_v1.json"))
+    Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/eval_probes_v1.json"
+    ))
 }
 
 #[test]
 fn loads_probe_set_and_all_four_categories_present() {
     let probe_set = eval_harness::load_probe_set(fixtures_path()).unwrap();
-    assert!(probe_set.probes.len() >= 12, "expected at least 3 probes x 4 categories");
-    let categories: std::collections::HashSet<_> =
-        probe_set.probes.iter().map(|p| p.category.as_str()).collect();
+    assert!(
+        probe_set.probes.len() >= 12,
+        "expected at least 3 probes x 4 categories"
+    );
+    let categories: std::collections::HashSet<_> = probe_set
+        .probes
+        .iter()
+        .map(|p| p.category.as_str())
+        .collect();
     assert!(categories.contains("new_fact_recall"));
     assert!(categories.contains("update_supersession"));
     assert!(categories.contains("forgetting_abstention"));
@@ -38,7 +47,10 @@ fn repeat_runs_are_byte_identical_sc003() {
     // Compare pass/total (not latency, which legitimately varies run to run).
     for (cat, score1) in &r1 {
         let score2 = &r2[cat];
-        assert_eq!(score1.passed, score2.passed, "category {cat} pass count differs between runs");
+        assert_eq!(
+            score1.passed, score2.passed,
+            "category {cat} pass count differs between runs"
+        );
         assert_eq!(score1.total, score2.total);
     }
 }
@@ -50,8 +62,12 @@ fn run_and_report_persists_a_baseline_report_row() {
     assert!(!report.hindsight_available);
 
     let count: i64 = store
-        .conn
-        .query_row("SELECT COUNT(*) FROM baseline_reports WHERE id = ?1", [&report.id], |r| r.get(0))
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM baseline_reports WHERE id = ?1",
+            [&report.id],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(count, 1);
 
@@ -77,7 +93,9 @@ fn write_report_file_round_trips_as_json() {
 /// probes is the equivalent scale check).
 #[test]
 fn harness_completes_within_two_minutes_at_1000_item_scale_sc002() {
-    use pamet::models::{EvalProbe, EvalProbeSet, ExpectedOutcome, GivenStep, ProbeAction, ProbeCategory};
+    use pamet::models::{
+        EvalProbe, EvalProbeSet, ExpectedOutcome, GivenStep, ProbeAction, ProbeCategory,
+    };
 
     let probes: Vec<EvalProbe> = (0..1000)
         .map(|i| EvalProbe {
@@ -88,11 +106,18 @@ fn harness_completes_within_two_minutes_at_1000_item_scale_sc002() {
                 source_id: "load-test".into(),
                 explicit_remember: true,
             }],
-            action: ProbeAction::Recall { query: format!("what is load-test fact number {i}") },
-            expected: ExpectedOutcome::ContainsContent { value: i.to_string() },
+            action: ProbeAction::Recall {
+                query: format!("what is load-test fact number {i}"),
+            },
+            expected: ExpectedOutcome::ContainsContent {
+                value: i.to_string(),
+            },
         })
         .collect();
-    let probe_set = EvalProbeSet { version: "load-test".into(), probes };
+    let probe_set = EvalProbeSet {
+        version: "load-test".into(),
+        probes,
+    };
 
     let start = std::time::Instant::now();
     let report = eval_harness::run_pamet(&probe_set).unwrap();
@@ -133,7 +158,10 @@ fn recall_and_consolidate_stay_fast_against_a_single_1000_item_store_sc002() {
     }
 
     let result = pamet::recall(&store, "what is scale-test fact number 500", None).unwrap();
-    assert!(!result.items.is_empty(), "recall must still find a match in a 1000-item store");
+    assert!(
+        !result.items.is_empty(),
+        "recall must still find a match in a 1000-item store"
+    );
 
     let summary = pamet::consolidate(&store).unwrap();
     // Not exactly 1000: the templated wording is similar enough across many
@@ -183,8 +211,12 @@ fn eval_with_hindsight_degrades_gracefully_when_unreachable_t049() {
     }
 
     let count: i64 = store
-        .conn
-        .query_row("SELECT COUNT(*) FROM baseline_reports WHERE id = ?1", [&report.id], |r| r.get(0))
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM baseline_reports WHERE id = ?1",
+            [&report.id],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(count, 1, "the degraded report must still be persisted");
 
@@ -209,13 +241,21 @@ fn eval_with_hindsight_full_dual_report_when_reachable_t049() {
     let store = Store::open_in_memory().unwrap();
     let report = eval_harness::run_and_report(&store, fixtures_path(), true).unwrap();
 
-    assert!(report.hindsight_available, "a reachable Hindsight must be used, not skipped");
-    let hindsight = report.hindsight.expect("hindsight_available=true must carry a report");
+    assert!(
+        report.hindsight_available,
+        "a reachable Hindsight must be used, not skipped"
+    );
+    let hindsight = report
+        .hindsight
+        .expect("hindsight_available=true must carry a report");
     assert!(!hindsight.is_empty());
     assert!(!report.pamet.is_empty());
     // Same probe set, same category keys, both systems scored.
     assert_eq!(
-        report.pamet.keys().collect::<std::collections::BTreeSet<_>>(),
+        report
+            .pamet
+            .keys()
+            .collect::<std::collections::BTreeSet<_>>(),
         hindsight.keys().collect::<std::collections::BTreeSet<_>>(),
     );
 }

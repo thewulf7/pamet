@@ -21,6 +21,14 @@ pub enum Error {
 
     #[error("malformed event payload: {0}")]
     MalformedEvent(String),
+
+    #[cfg(feature = "postgres-backend")]
+    #[error("postgres storage error: {0}")]
+    Postgres(#[from] postgres::Error),
+
+    #[cfg(feature = "postgres-backend")]
+    #[error("postgres connection pool error: {0}")]
+    PostgresPool(#[from] r2d2::Error),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

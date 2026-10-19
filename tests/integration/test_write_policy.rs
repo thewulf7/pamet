@@ -9,7 +9,11 @@ fn write_policy_full_sequence() {
 
     let d1 = pamet::remember(
         &store,
-        &Interaction { source_id: "t".into(), text: "The project is called Pamet.".into(), explicit_remember: false },
+        &Interaction {
+            source_id: "t".into(),
+            text: "The project is called Pamet.".into(),
+            explicit_remember: false,
+        },
     )
     .unwrap();
     assert_eq!(d1[0].decision, Decision::Store);
@@ -24,7 +28,11 @@ fn write_policy_full_sequence() {
         },
     )
     .unwrap();
-    assert_eq!(d2[0].decision, Decision::Merge, "exact restatement should merge");
+    assert_eq!(
+        d2[0].decision,
+        Decision::Merge,
+        "exact restatement should merge"
+    );
     assert_eq!(d2[0].resulting_item_id.as_deref(), Some(item_a.as_str()));
 
     let d3 = pamet::remember(
@@ -44,7 +52,11 @@ fn write_policy_full_sequence() {
 
     let d4 = pamet::remember(
         &store,
-        &Interaction { source_id: "t".into(), text: "lol ok".into(), explicit_remember: false },
+        &Interaction {
+            source_id: "t".into(),
+            text: "lol ok".into(),
+            explicit_remember: false,
+        },
     )
     .unwrap();
     assert_eq!(d4[0].decision, Decision::Skip);
@@ -60,7 +72,11 @@ fn low_confidence_write_goes_to_review_queue_and_is_excluded_from_recall() {
     let store = Store::open_in_memory().unwrap();
     pamet::remember(
         &store,
-        &Interaction { source_id: "t".into(), text: "The weather today is sunny and warm.".into(), explicit_remember: true },
+        &Interaction {
+            source_id: "t".into(),
+            text: "The weather today is sunny and warm.".into(),
+            explicit_remember: true,
+        },
     )
     .unwrap();
 

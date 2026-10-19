@@ -33,17 +33,26 @@ fn full_quickstart_scenario_1_write_decisions() {
 
     let (ok, out, _) = run(db, &["remember", "--text", "The project is called Pamet."]);
     assert!(ok);
-    assert!(out.starts_with("store"), "first fact should be stored: {out}");
+    assert!(
+        out.starts_with("store"),
+        "first fact should be stored: {out}"
+    );
 
     let (ok, out, _) = run(db, &["remember", "--text", "lol ok"]);
     assert!(ok);
-    assert!(out.starts_with("skip"), "low-value chatter should be skipped: {out}");
+    assert!(
+        out.starts_with("skip"),
+        "low-value chatter should be skipped: {out}"
+    );
 
     let (ok, review_out, _) = run(db, &["review", "list"]);
     assert!(ok);
     // No ambiguous/contradicting candidates were sent in this scenario, so
     // the review queue should still be empty.
-    assert!(review_out.trim().is_empty(), "review queue should be empty: {review_out}");
+    assert!(
+        review_out.trim().is_empty(),
+        "review queue should be empty: {review_out}"
+    );
 
     std::fs::remove_file(db).ok();
 }
@@ -55,13 +64,41 @@ fn full_quickstart_scenario_2_hybrid_retrieval_with_budget() {
     std::fs::remove_file(db).ok();
 
     run(db, &["remember", "--text", "The project is called Pamet."]);
-    run(db, &["remember", "--text", "Bananas are a good source of potassium."]);
+    run(
+        db,
+        &[
+            "remember",
+            "--text",
+            "Bananas are a good source of potassium.",
+        ],
+    );
 
-    let (ok, out, _) = run(db, &["recall", "--query", "what is the project called", "--budget", "2"]);
+    let (ok, out, _) = run(
+        db,
+        &[
+            "recall",
+            "--query",
+            "what is the project called",
+            "--budget",
+            "2",
+        ],
+    );
     assert!(ok, "recall must exit 0 even for an empty result");
-    assert!(out.contains("Pamet"), "relevant query should surface the Pamet fact: {out}");
+    assert!(
+        out.contains("Pamet"),
+        "relevant query should surface the Pamet fact: {out}"
+    );
 
-    let (ok, out, _) = run(db, &["recall", "--query", "completely unrelated query about weather", "--budget", "2"]);
+    let (ok, out, _) = run(
+        db,
+        &[
+            "recall",
+            "--query",
+            "completely unrelated query about weather",
+            "--budget",
+            "2",
+        ],
+    );
     assert!(ok, "recall must exit 0 for a no-match query (FR-008)");
     assert_eq!(out.trim(), "no relevant memory found");
 
@@ -74,7 +111,10 @@ fn full_quickstart_scenario_3_outcome_logging_closes_the_loop() {
     let db = tmp.path().to_str().unwrap();
     std::fs::remove_file(db).ok();
 
-    let (_, remember_out, _) = run(db, &["remember", "--text", "Pamet is an agent memory layer."]);
+    let (_, remember_out, _) = run(
+        db,
+        &["remember", "--text", "Pamet is an agent memory layer."],
+    );
     let item_id = remember_out
         .split("item=")
         .nth(1)
@@ -82,7 +122,10 @@ fn full_quickstart_scenario_3_outcome_logging_closes_the_loop() {
         .trim()
         .to_string();
 
-    let (ok, _, recall_stderr) = run(db, &["recall", "--query", "Pamet memory layer", "--budget", "5"]);
+    let (ok, _, recall_stderr) = run(
+        db,
+        &["recall", "--query", "Pamet memory layer", "--budget", "5"],
+    );
     assert!(ok);
     let event_id = recall_stderr
         .split("event_id=")
@@ -91,8 +134,18 @@ fn full_quickstart_scenario_3_outcome_logging_closes_the_loop() {
         .trim()
         .to_string();
 
-    let (ok, outcome_out, _) =
-        run(db, &["outcome", "--event-id", &event_id, "--item-id", &item_id, "--used", "true"]);
+    let (ok, outcome_out, _) = run(
+        db,
+        &[
+            "outcome",
+            "--event-id",
+            &event_id,
+            "--item-id",
+            &item_id,
+            "--used",
+            "true",
+        ],
+    );
     assert!(ok, "outcome command must succeed");
     assert_eq!(outcome_out.trim(), "ok");
 
@@ -117,7 +170,12 @@ fn forget_removes_item_from_recall_end_to_end() {
     std::fs::remove_file(db).ok();
 
     let (_, remember_out, _) = run(db, &["remember", "--text", "A fact to be forgotten."]);
-    let item_id = remember_out.split("item=").nth(1).unwrap().trim().to_string();
+    let item_id = remember_out
+        .split("item=")
+        .nth(1)
+        .unwrap()
+        .trim()
+        .to_string();
 
     let (ok, recall_out, _) = run(db, &["recall", "--query", "forgotten", "--budget", "5"]);
     assert!(ok);

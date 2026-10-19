@@ -8,7 +8,11 @@ fn novel_text_stores() {
     let store = Store::open_in_memory().unwrap();
     let outcome = evaluate(
         &store,
-        &Candidate { content: "a brand new fact".into(), item_type: ItemType::Fact, explicit_remember: false },
+        &Candidate {
+            content: "a brand new fact".into(),
+            item_type: ItemType::Fact,
+            explicit_remember: false,
+        },
     )
     .unwrap();
     assert_eq!(outcome.decision, Decision::Store);
@@ -20,7 +24,11 @@ fn low_value_chatter_skips() {
     let store = Store::open_in_memory().unwrap();
     let outcome = evaluate(
         &store,
-        &Candidate { content: "hi".into(), item_type: ItemType::Fact, explicit_remember: false },
+        &Candidate {
+            content: "hi".into(),
+            item_type: ItemType::Fact,
+            explicit_remember: false,
+        },
     )
     .unwrap();
     assert_eq!(outcome.decision, Decision::Skip);
@@ -31,8 +39,16 @@ fn explicit_remember_overrides_low_value_skip() {
     let store = Store::open_in_memory().unwrap();
     let outcome = evaluate(
         &store,
-        &Candidate { content: "hi".into(), item_type: ItemType::Fact, explicit_remember: true },
+        &Candidate {
+            content: "hi".into(),
+            item_type: ItemType::Fact,
+            explicit_remember: true,
+        },
     )
     .unwrap();
-    assert_ne!(outcome.decision, Decision::Skip, "explicit remember must override the low-value heuristic");
+    assert_ne!(
+        outcome.decision,
+        Decision::Skip,
+        "explicit remember must override the low-value heuristic"
+    );
 }

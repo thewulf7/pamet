@@ -32,12 +32,24 @@ fn consolidation_runs_independently_of_live_path() {
     // Live writes before any consolidation — near-duplicate wording
     // (verified sim ≈ 0.68) so they land as two separate active items for
     // consolidation to actually have something to cluster.
-    pamet::remember(&store, &Interaction {
-        source_id: "e2e".into(), text: FACT_A.into(), explicit_remember: true,
-    }).unwrap();
-    pamet::remember(&store, &Interaction {
-        source_id: "e2e".into(), text: FACT_B.into(), explicit_remember: true,
-    }).unwrap();
+    pamet::remember(
+        &store,
+        &Interaction {
+            source_id: "e2e".into(),
+            text: FACT_A.into(),
+            explicit_remember: true,
+        },
+    )
+    .unwrap();
+    pamet::remember(
+        &store,
+        &Interaction {
+            source_id: "e2e".into(),
+            text: FACT_B.into(),
+            explicit_remember: true,
+        },
+    )
+    .unwrap();
 
     let t0 = Instant::now();
     let result_before = pamet::recall(&store, "quarterly report deadline", None).unwrap();
@@ -49,9 +61,15 @@ fn consolidation_runs_independently_of_live_path() {
     assert_eq!(summary.clusters_formed, 1);
 
     // Live path still works after consolidation, and more writes still work.
-    pamet::remember(&store, &Interaction {
-        source_id: "e2e".into(), text: "The license is MIT.".into(), explicit_remember: true,
-    }).unwrap();
+    pamet::remember(
+        &store,
+        &Interaction {
+            source_id: "e2e".into(),
+            text: "The license is MIT.".into(),
+            explicit_remember: true,
+        },
+    )
+    .unwrap();
 
     let t1 = Instant::now();
     let result_after = pamet::recall(&store, "quarterly report deadline", None).unwrap();
@@ -59,11 +77,16 @@ fn consolidation_runs_independently_of_live_path() {
     assert!(!result_after.items.is_empty());
 
     let result_license = pamet::recall(&store, "what is the license", None).unwrap();
-    assert!(result_license.items.iter().any(|i| i.content.contains("MIT")));
+    assert!(result_license
+        .items
+        .iter()
+        .any(|i| i.content.contains("MIT")));
 
     // Not a hard perf assertion (shared test machine), just a sanity bound
     // that consolidation didn't make recall order-of-magnitude slower.
-    assert!(recall_latency_after < recall_latency_before * 10 + std::time::Duration::from_millis(50));
+    assert!(
+        recall_latency_after < recall_latency_before * 10 + std::time::Duration::from_millis(50)
+    );
 }
 
 /// T043/SC-001: a consolidation run executing concurrently with live
@@ -96,12 +119,24 @@ fn concurrent_consolidation_does_not_measurably_slow_recall_sc001() {
     let baseline = recall_p95(&store, 200);
 
     // Seed near-duplicates so there's real clustering work to interleave.
-    pamet::remember(&store, &Interaction {
-        source_id: "e2e".into(), text: FACT_A.into(), explicit_remember: true,
-    }).unwrap();
-    pamet::remember(&store, &Interaction {
-        source_id: "e2e".into(), text: FACT_B.into(), explicit_remember: true,
-    }).unwrap();
+    pamet::remember(
+        &store,
+        &Interaction {
+            source_id: "e2e".into(),
+            text: FACT_A.into(),
+            explicit_remember: true,
+        },
+    )
+    .unwrap();
+    pamet::remember(
+        &store,
+        &Interaction {
+            source_id: "e2e".into(),
+            text: FACT_B.into(),
+            explicit_remember: true,
+        },
+    )
+    .unwrap();
 
     let mut interleaved = Vec::with_capacity(200);
     for i in 0..200 {

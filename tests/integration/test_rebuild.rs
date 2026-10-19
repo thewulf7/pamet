@@ -10,14 +10,22 @@ fn rebuilt_store_matches_live_store_after_a_mixed_sequence() {
 
     let d1 = pamet::remember(
         &live,
-        &Interaction { source_id: "t".into(), text: "Pamet is a memory layer for agents".into(), explicit_remember: true },
+        &Interaction {
+            source_id: "t".into(),
+            text: "Pamet is a memory layer for agents".into(),
+            explicit_remember: true,
+        },
     )
     .unwrap();
     let item_a = d1[0].resulting_item_id.clone().unwrap();
 
     pamet::remember(
         &live,
-        &Interaction { source_id: "t".into(), text: "Bananas are yellow".into(), explicit_remember: true },
+        &Interaction {
+            source_id: "t".into(),
+            text: "Bananas are yellow".into(),
+            explicit_remember: true,
+        },
     )
     .unwrap();
 
@@ -27,7 +35,11 @@ fn rebuilt_store_matches_live_store_after_a_mixed_sequence() {
 
     pamet::remember(
         &live,
-        &Interaction { source_id: "t".into(), text: "lol ok".into(), explicit_remember: false },
+        &Interaction {
+            source_id: "t".into(),
+            text: "lol ok".into(),
+            explicit_remember: false,
+        },
     )
     .unwrap();
 
@@ -54,8 +66,14 @@ fn rebuilt_store_matches_live_store_after_a_mixed_sequence() {
     assert_eq!(live_wd, rebuilt_wd);
 
     // Same outcome_records.
-    let live_outcomes: i64 = live.conn.query_row("SELECT COUNT(*) FROM outcome_records", [], |r| r.get(0)).unwrap();
-    let rebuilt_outcomes: i64 = rebuilt.conn.query_row("SELECT COUNT(*) FROM outcome_records", [], |r| r.get(0)).unwrap();
+    let live_outcomes: i64 = live
+        .conn()
+        .query_row("SELECT COUNT(*) FROM outcome_records", [], |r| r.get(0))
+        .unwrap();
+    let rebuilt_outcomes: i64 = rebuilt
+        .conn()
+        .query_row("SELECT COUNT(*) FROM outcome_records", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(live_outcomes, rebuilt_outcomes);
     assert_eq!(live_outcomes, 1);
 }
@@ -94,7 +112,7 @@ fn rebuilt_store_matches_live_store_after_phase2_events() {
     // Resolve the review gate so both the pending AND resolved code paths
     // get exercised through replay.
     let review_id: i64 = live
-        .conn
+        .conn()
         .query_row(
             "SELECT id FROM review_queue WHERE reason = 'consolidation_cluster_promotion' LIMIT 1",
             [],
@@ -127,47 +145,87 @@ fn rebuilt_store_matches_live_store_after_phase2_events() {
     assert_eq!(query_all_items(&live), query_all_items(&rebuilt));
     assert_eq!(query_decisions(&live), query_decisions(&rebuilt));
 
-    let live_clusters: i64 =
-        live.conn.query_row("SELECT COUNT(*) FROM cluster_members", [], |r| r.get(0)).unwrap();
-    let rebuilt_clusters: i64 =
-        rebuilt.conn.query_row("SELECT COUNT(*) FROM cluster_members", [], |r| r.get(0)).unwrap();
+    let live_clusters: i64 = live
+        .conn()
+        .query_row("SELECT COUNT(*) FROM cluster_members", [], |r| r.get(0))
+        .unwrap();
+    let rebuilt_clusters: i64 = rebuilt
+        .conn()
+        .query_row("SELECT COUNT(*) FROM cluster_members", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(live_clusters, rebuilt_clusters);
     assert!(live_clusters > 0);
 
-    let live_runs: i64 =
-        live.conn.query_row("SELECT COUNT(*) FROM consolidation_runs WHERE status = 'completed'", [], |r| r.get(0)).unwrap();
-    let rebuilt_runs: i64 =
-        rebuilt.conn.query_row("SELECT COUNT(*) FROM consolidation_runs WHERE status = 'completed'", [], |r| r.get(0)).unwrap();
+    let live_runs: i64 = live
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM consolidation_runs WHERE status = 'completed'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let rebuilt_runs: i64 = rebuilt
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM consolidation_runs WHERE status = 'completed'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(live_runs, rebuilt_runs);
     assert_eq!(live_runs, 2);
 
     let live_review_status: String = live
-        .conn
-        .query_row("SELECT status FROM review_queue WHERE id = ?1", [review_id], |r| r.get(0))
+        .conn()
+        .query_row(
+            "SELECT status FROM review_queue WHERE id = ?1",
+            [review_id],
+            |r| r.get(0),
+        )
         .unwrap();
     let rebuilt_review_status: String = rebuilt
-        .conn
-        .query_row("SELECT status FROM review_queue WHERE id = ?1", [review_id], |r| r.get(0))
+        .conn()
+        .query_row(
+            "SELECT status FROM review_queue WHERE id = ?1",
+            [review_id],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(live_review_status, "resolved_store");
     assert_eq!(live_review_status, rebuilt_review_status);
 
-    let live_reports: i64 =
-        live.conn.query_row("SELECT COUNT(*) FROM baseline_reports", [], |r| r.get(0)).unwrap();
-    let rebuilt_reports: i64 =
-        rebuilt.conn.query_row("SELECT COUNT(*) FROM baseline_reports", [], |r| r.get(0)).unwrap();
+    let live_reports: i64 = live
+        .conn()
+        .query_row("SELECT COUNT(*) FROM baseline_reports", [], |r| r.get(0))
+        .unwrap();
+    let rebuilt_reports: i64 = rebuilt
+        .conn()
+        .query_row("SELECT COUNT(*) FROM baseline_reports", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(live_reports, rebuilt_reports);
     assert_eq!(live_reports, 1);
 
     // T045: per-probe eval_results rows must also replay (same count,
     // same pass/fail per probe).
     let live_eval_results: Vec<(String, i64)> = {
-        let mut stmt = live.conn.prepare("SELECT probe_id, passed FROM eval_results ORDER BY probe_id").unwrap();
-        stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).unwrap().map(|r| r.unwrap()).collect()
+        let mut stmt = live
+            .conn()
+            .prepare("SELECT probe_id, passed FROM eval_results ORDER BY probe_id")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
     };
     let rebuilt_eval_results: Vec<(String, i64)> = {
-        let mut stmt = rebuilt.conn.prepare("SELECT probe_id, passed FROM eval_results ORDER BY probe_id").unwrap();
-        stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).unwrap().map(|r| r.unwrap()).collect()
+        let mut stmt = rebuilt
+            .conn()
+            .prepare("SELECT probe_id, passed FROM eval_results ORDER BY probe_id")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
     };
     assert_eq!(live_eval_results, rebuilt_eval_results);
     assert!(!live_eval_results.is_empty());
@@ -197,7 +255,7 @@ fn rebuilt_store_matches_live_store_after_item_decayed_event_t051() {
 
     // Age the item directly so this run's decay check actually fires,
     // without waiting on real wall-clock time.
-    live.conn
+    live.conn()
         .execute(
             "UPDATE memory_items SET created_at = '2020-01-01T00:00:00Z' WHERE 1=1",
             [],
@@ -205,7 +263,10 @@ fn rebuilt_store_matches_live_store_after_item_decayed_event_t051() {
         .unwrap();
 
     let summary = pamet::consolidate(&live).unwrap();
-    assert_eq!(summary.items_decayed, 1, "the aged item must be observed as decayed");
+    assert_eq!(
+        summary.items_decayed, 1,
+        "the aged item must be observed as decayed"
+    );
 
     let rebuilt = pamet::rebuild_from_events(&live).unwrap();
 
@@ -228,15 +289,23 @@ fn rebuilt_store_matches_live_store_after_item_decayed_event_t051() {
 }
 
 fn query_all_items(store: &Store) -> Vec<(String, String)> {
-    let mut stmt = store.conn.prepare("SELECT id, content FROM memory_items ORDER BY id").unwrap();
-    stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
-        .unwrap()
-        .map(|r| r.unwrap())
-        .collect()
+    let mut stmt = store
+        .conn()
+        .prepare("SELECT id, content FROM memory_items ORDER BY id")
+        .unwrap();
+    stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+    .unwrap()
+    .map(|r| r.unwrap())
+    .collect()
 }
 
 fn query_decisions(store: &Store) -> Vec<String> {
-    let mut stmt = store.conn.prepare("SELECT decision FROM write_decisions ORDER BY id").unwrap();
+    let mut stmt = store
+        .conn()
+        .prepare("SELECT decision FROM write_decisions ORDER BY id")
+        .unwrap();
     stmt.query_map([], |row| row.get::<_, String>(0))
         .unwrap()
         .map(|r| r.unwrap())
