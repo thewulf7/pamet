@@ -238,13 +238,11 @@ default (no `postgres-backend`) build.
    confirmed directly against pgvector 0.8.7 — and Pamet's frozen embedder
    (Constitution Principle III, out of scope for a storage-layer feature) is
    4096-dim, so **no native vector index is possible on this column at any
-   implementation quality**, with or without postgres-backend. The test now
-   asserts a 200ms regression-guard bound with this fully explained in a
-   comment, not SC-003's literal number. **This is a spec-level decision for
-   a human, not something further implementation work can close**: either
-   relax SC-003's number, or treat embedding-dimension reduction as a
-   separate future feature (it would also affect the SQLite path and
-   Phase 1/2's frozen-embedder decision, well beyond this feature's scope).
+   implementation quality**, with or without postgres-backend. **Resolved**
+   via `/speckit-clarify` (2026-10-19): SC-003 relaxed to <200ms/query,
+   documented in spec.md as a pgvector vendor-limit tradeoff — not revisiting
+   the frozen embedder's dimension in this feature. Test and spec now both
+   assert 200ms.
 
 **Not done — genuine gaps, not silently skipped**:
 - **T028/T029**: quickstart.md was not re-run end-to-end to replace its

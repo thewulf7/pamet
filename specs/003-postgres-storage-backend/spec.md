@@ -14,6 +14,7 @@
 
 - Q: FR-004 requires migration to be "safely re-runnable without producing duplicate items" — what does safe re-run mean? → A: Migration MUST refuse to run against a target that already contains any data; a re-run requires a fresh target (no idempotent per-row merge, no destructive auto-wipe).
 - Q: How is the production backend's connection info (credentials included) supplied? → A: Connection string via CLI argument/flag (same `--db` convention as the embedded store), not a separate config mechanism.
+- Q: SC-003 required <100ms per query at 10k items; a real 10k-item run measured ~140ms after optimization (verified hard ceiling — pgvector cannot index a 4096-dim column, max 2000 dims). Relax the target or treat embedding-dimension reduction as separate scope? → A: Relax SC-003 to <200ms per query, documented as a pgvector vendor-limit tradeoff, not revisit the frozen embedder's dimension in this feature.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -185,7 +186,10 @@ still works exactly as before this feature.
   minutes, with the item count, event count, and review-queue state identical before and
   after.
 - **SC-003**: A similarity search against a 10,000-item store on the new backend returns in
-  under 100ms per query.
+  under 200ms per query. *(Relaxed from an original 100ms target during implementation —
+  see Clarifications: pgvector cannot index a 4096-dimension column at all (hard 2000-dim
+  vendor cap), so 100ms was not achievable at any implementation quality without changing
+  Pamet's frozen embedder, which is out of scope for a storage-layer feature.)*
 - **SC-004**: An operator with no production backend configured can use every existing
   Pamet capability fully offline, with zero network calls, exactly as before this feature.
 - **SC-005**: Running the existing eval harness against the new backend produces scores

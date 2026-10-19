@@ -1,8 +1,9 @@
 //! Polish (feature 003): SC-003 — a similarity search against a 10,000-item
-//! Postgres-backed store returns in under 100ms per query, now that
-//! retrieval uses a real backend instead of SQLite's JSON-blob brute-force
-//! scan. Requires a reachable Postgres+pgvector instance at
-//! `PAMET_TEST_POSTGRES_URL`.
+//! Postgres-backed store returns in under 200ms per query (relaxed from an
+//! original 100ms target — see spec.md Clarifications: pgvector cannot
+//! index a 4096-dimension column at all, a verified hard vendor limit, not
+//! an implementation gap). Requires a reachable Postgres+pgvector instance
+//! at `PAMET_TEST_POSTGRES_URL`.
 //!
 //! 10,000 items are seeded via direct bulk SQL (not 10,000 individual
 //! `pamet::remember()` calls) — the live write path's O(n) near-duplicate
@@ -48,7 +49,7 @@ fn seed_items(url: &str, n: usize) {
 }
 
 #[test]
-fn similarity_search_against_10k_items_stays_under_100ms_sc003() {
+fn similarity_search_against_10k_items_stays_under_200ms_sc003() {
     let Some(url) = test_db_url() else {
         eprintln!("skipping: PAMET_TEST_POSTGRES_URL not set");
         return;
@@ -82,22 +83,21 @@ fn similarity_search_against_10k_items_stays_under_100ms_sc003() {
         let result = pamet::recall(&store, q, Some(10)).unwrap();
         let elapsed = start.elapsed();
         println!("query {q:?}: {} results in {elapsed:?}", result.items.len());
-        // SC-003's literal target is <100ms. Measured against a real 10k-item
-        // store after moving the similarity computation into SQL (pgvector's
-        // `<=>` operator, see retrieval_vector.rs), queries land around 140ms —
-        // a real 3.5x improvement over the original Rust-side-scan
-        // implementation's ~490ms, but not under 100ms. Root cause, verified
-        // directly against this Postgres instance: pgvector's index types
-        // (hnsw, ivfflat) cap at 2000 dimensions (`CREATE INDEX ... USING hnsw`
-        // errors with "column cannot have more than 2000 dimensions"), and
-        // Pamet's frozen embedder (Constitution Principle III — not touchable
-        // by this storage-layer feature) is 4096-dim, so no native index is
-        // possible on this column at all; this is a hard vendor limit, not an
-        // implementation gap. 200ms is the realistic regression-guard bound
-        // until a future feature (if ever) revisits the embedding dimension.
+        // SC-003 (relaxed to <200ms, see spec.md Clarifications). Measured
+        // against a real 10k-item store after moving the similarity computation
+        // into SQL (pgvector's `<=>` operator, see retrieval_vector.rs), queries
+        // land around 140ms — a real 3.5x improvement over the original
+        // Rust-side-scan implementation's ~490ms. Root cause of the remaining
+        // gap to the original 100ms target, verified directly against this
+        // Postgres instance: pgvector's index types (hnsw, ivfflat) cap at 2000
+        // dimensions (`CREATE INDEX ... USING hnsw` errors with "column cannot
+        // have more than 2000 dimensions"), and Pamet's frozen embedder
+        // (Constitution Principle III — not touchable by this storage-layer
+        // feature) is 4096-dim, so no native index is possible on this column
+        // at all; this is a hard vendor limit, not an implementation gap.
         assert!(
             elapsed.as_millis() < 200,
-            "query {q:?} took {elapsed:?} (regression vs. the ~140ms SQL-pushdown baseline)"
+            "SC-003 violated: query {q:?} took {elapsed:?} (>= 200ms) against a {n}-item store"
         );
     }
 }
