@@ -173,6 +173,60 @@ fn rebuilt_store_matches_live_store_after_phase2_events() {
     assert!(!live_eval_results.is_empty());
 }
 
+/// T051: Constitution I / FR-002 — `item_decayed` (T047) replays exactly
+/// like the other 5 Phase 2 event types. Ages an item directly (bypassing
+/// real time), runs `consolidate` to produce the event, rebuilds, and
+/// confirms both the raw event log and the derived `memory_items` state
+/// match. `item_decayed` carries no derived row of its own (decay is a
+/// pure read-time computation, not stored state — see `decay.rs`), so the
+/// event itself replaying without error, with an identical payload, is the
+/// whole rebuild contract here.
+#[test]
+fn rebuilt_store_matches_live_store_after_item_decayed_event_t051() {
+    let live = Store::open_in_memory().unwrap();
+
+    pamet::remember(
+        &live,
+        &Interaction {
+            source_id: "t".into(),
+            text: "The office closes at six.".into(),
+            explicit_remember: true,
+        },
+    )
+    .unwrap();
+
+    // Age the item directly so this run's decay check actually fires,
+    // without waiting on real wall-clock time.
+    live.conn
+        .execute(
+            "UPDATE memory_items SET created_at = '2020-01-01T00:00:00Z' WHERE 1=1",
+            [],
+        )
+        .unwrap();
+
+    let summary = pamet::consolidate(&live).unwrap();
+    assert_eq!(summary.items_decayed, 1, "the aged item must be observed as decayed");
+
+    let rebuilt = pamet::rebuild_from_events(&live).unwrap();
+
+    let live_events = pamet::export_log(&live, None).unwrap();
+    let rebuilt_events = pamet::export_log(&rebuilt, None).unwrap();
+    assert_eq!(live_events.len(), rebuilt_events.len());
+    for (a, b) in live_events.iter().zip(rebuilt_events.iter()) {
+        assert_eq!(a.id, b.id);
+        assert_eq!(a.event_type, b.event_type);
+        assert_eq!(a.payload_json, b.payload_json);
+    }
+    assert!(
+        live_events.iter().any(|e| e.event_type == "item_decayed"),
+        "fixture must actually exercise item_decayed, or this test proves nothing"
+    );
+
+    // No derived row for item_decayed (decay is read-time-only), but the
+    // item itself must still match post-replay.
+    assert_eq!(query_all_items(&live), query_all_items(&rebuilt));
+}
+
 fn query_all_items(store: &Store) -> Vec<(String, String)> {
     let mut stmt = store.conn.prepare("SELECT id, content FROM memory_items ORDER BY id").unwrap();
     stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))

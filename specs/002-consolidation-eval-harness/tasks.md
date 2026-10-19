@@ -481,3 +481,15 @@ Task: "Implement decay computation in src/models/decay.rs"
   in a release build (debug builds are much slower due to unoptimized
   O(n²) float math in write-time similarity scanning — the 2-minute bound
   is meant for a release build, consistent with how the project is shipped).
+
+---
+
+## Phase 9: Convergence
+
+- [X] T051 Add a rebuild/replay assertion covering the `item_decayed` event
+  type (age an item, run `consolidate`, rebuild via
+  `pamet::rebuild_from_events`, confirm replay succeeds without error and
+  the rebuilt store's `export-log` matches the live one) in
+  `tests/integration/test_rebuild.rs`, per Constitution I / FR-002 — T046
+  covered the other 5 Phase 2 event types but predates T047's new one
+  (partial)
