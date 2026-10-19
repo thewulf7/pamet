@@ -34,7 +34,7 @@ pub struct PolicyOutcome {
 /// the caller (`remember()` in lib.rs), which always supplies a real event id.
 pub fn evaluate(store: &Store, candidate: &Candidate) -> Result<PolicyOutcome> {
     let embedding_vec = embedding::embed(&candidate.content);
-    let active_items = active_items(store)?;
+    let active_items = candidate_items(store, candidate)?;
 
     let mut best_match: Option<(f32, MemoryItem)> = None;
     for item in &active_items {
@@ -126,8 +126,32 @@ pub fn evaluate(store: &Store, candidate: &Candidate) -> Result<PolicyOutcome> {
     })
 }
 
-fn active_items(store: &Store) -> Result<Vec<MemoryItem>> {
-    crate::services::memory_items::active_items_where(store, "")
+/// T002/T003 (feature 005): narrow the near-duplicate candidate set with the
+/// existing keyword index (same tokenizer `embedding::embed()` hashes on —
+/// research.md Decision 1: a pair scoring above any meaningful cosine
+/// threshold necessarily shares tokens for this hashed-bag-of-words
+/// embedder, so this is not a lossy approximation at the decisive
+/// merge/contradiction bands) before running the expensive exact scan.
+/// Falls through to the full table only if the keyword index itself can't
+/// be queried (defensive — keeps the old full-scan behavior as a fallback
+/// rather than ever silently treating a query error as "no candidates").
+fn candidate_items(store: &Store, candidate: &Candidate) -> Result<Vec<MemoryItem>> {
+    const PREFILTER_LIMIT: usize = 200;
+    let keyword_hits =
+        crate::services::retrieval_keyword::search(store, &candidate.content, PREFILTER_LIMIT)?;
+    if keyword_hits.is_empty() {
+        // Decision 3: zero keyword overlap implies ~zero cosine similarity
+        // for this embedder — skip the scan entirely rather than comparing
+        // against every item for nothing.
+        return Ok(Vec::new());
+    }
+    let ids: Vec<String> = keyword_hits.into_iter().map(|h| h.item_id).collect();
+    let quoted = ids
+        .iter()
+        .map(|id| format!("'{}'", id.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(",");
+    crate::services::memory_items::active_items_where(store, &format!("id IN ({quoted})"))
 }
 
 /// Keyword-overlap contradiction heuristic: shares a subject (token overlap)
