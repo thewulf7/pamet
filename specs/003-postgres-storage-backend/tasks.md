@@ -363,3 +363,34 @@ Task: "Extend review.rs and outcome.rs with Postgres-dialect branches"
   instance) before implementing
 - Commit after each task or logical group
 - Stop at any checkpoint to validate a story independently
+
+---
+
+## Phase 7: Convergence
+
+**Purpose**: Close gaps found by `/speckit-converge` (2026-10-19) between spec.md's
+acceptance scenarios/success criteria and current automated test coverage. The
+underlying implementation already supports all of these (`rebuild.rs`'s replay logic
+carries review/consolidation/eval state through verbatim, `postgres_pool.rs` fails fast
+on an unreachable server) — these tasks close *test coverage* gaps, not missing features.
+
+- [ ] T031 [P] Extend `tests/e2e/test_migration_e2e.rs`'s migration test to seed a pending
+  review, a resolved review, and a completed consolidation run in the source store before
+  migrating, asserting matching counts (items/reviews-pending/reviews-resolved/consolidation
+  runs) on the target with no duplicates, per US2/AC1 (partial)
+- [ ] T032 [P] Add a test to `tests/e2e/test_migration_e2e.rs` that seeds an interrupted
+  (never-finished) consolidation run in the source store before migrating, asserting the
+  target's corresponding `consolidation_runs.status` is `'interrupted'`, per US2/AC3 and the
+  "interrupted consolidation run" Edge Case (missing)
+- [ ] T033 [P] Add a migration throughput test asserting a 10,000-item source store migrates
+  to a fresh Postgres target in under 5 minutes, per SC-002 (missing)
+- [ ] T034 [P] Add a test pointing `Store::open` at an unreachable Postgres host/port (feature
+  compiled in, server down) asserting a fast, clear error rather than a hang or silent
+  fallback to the embedded store, per the "unreachable backend fails fast" Edge Case (missing)
+- [ ] T035 [P] Add a replay-equivalence test to `tests/integration/test_rebuild.rs` using a
+  Postgres-backed `live` store as the source for `rebuild_from_events`, confirming the same
+  equivalence guarantee the existing SQLite-backed tests already assert, per FR-002/FR-008
+  (missing)
+- [ ] T036 Extend T031's migration test to also run `eval` against the source before
+  migrating, asserting the resulting `baseline_reports` row carries over to the target, per
+  FR-009 (missing)
