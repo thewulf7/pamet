@@ -125,11 +125,15 @@ store's exported log replays identically.
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Create `src/services/migrate.rs` — read the source's complete event log
+- [X] T019 [US2] Create `src/services/migrate.rs` — read the source's complete event log
   via the existing `export_log()`, then replay it into a freshly-initialized target store
-  using T007's generalized `rebuild::apply_event` logic (depends on T007)
-- [ ] T020 [US2] Add the refuse-non-empty-target guard (data-model.md "Migration Run"
-  re-run safety) to `migrate.rs` (depends on T019)
+  using T007's generalized `rebuild::apply_event` logic (depends on T007). **Deviation**:
+  implemented as `rebuild::rebuild_into()` directly rather than a separate `migrate.rs` file
+  — same reuse-of-replay approach, different file location.
+- [X] T020 [US2] Add the refuse-non-empty-target guard (data-model.md "Migration Run"
+  re-run safety) to `migrate.rs` (depends on T019). Implemented as `rebuild::target_is_empty()`
+  guarding `rebuild_into()`; covered by `migrate_refuses_to_run_against_a_non_empty_target` in
+  `tests/e2e/test_migration_e2e.rs`.
 - [X] T021 [US2] Add the `migrate --from <source> --to <target>` CLI subcommand in
   `src/bin/pamet.rs`, printing
   `migration_complete items=<n> events=<n> reviews_pending=<n> reviews_resolved=<n>` on
@@ -190,22 +194,32 @@ Scenario 3 passes with zero network reachability)
 
 ## Implementation Notes (T030 — actual vs. planned)
 
-**Done (22/30)**: T001-T018, T021-T023, T026-T027. Core architecture, all US1
-per-service Postgres-dialect branches, and US2's actual migration mechanism are
-implemented and verified against a real local `pgvector/pgvector:pg16` container
-(not mocked) — `remember`/`recall`/`consolidate`/`tombstone`/`review` round-trip
-correctly on Postgres, SQLite→Postgres migration round-trips a real item through
-`recall()` on the target, and all 53 pre-existing Phase 1/2 tests still pass
-unchanged on the default (no `postgres-backend`) build.
+**Done (24/30)**: T001-T023, T026-T027. Core architecture, all US1 per-service
+Postgres-dialect branches, and US2's full migration mechanism (including the
+refuse-non-empty-target guard, T020) are implemented and verified against a
+real local `pgvector/pgvector:pg16` container (not mocked) —
+`remember`/`recall`/`consolidate`/`tombstone`/`review` round-trip correctly on
+Postgres, `pamet migrate` round-trips a real item through `recall()` on the
+target AND correctly refuses a second run against that now-non-empty target,
+and all pre-existing Phase 1/2 tests still pass unchanged on the default (no
+`postgres-backend`) build.
+
+**A real bug found by the live-container tests, not a test artifact**: the
+first version of `rebuild_into()` replayed events with their original,
+explicit ids (correctly, per Principle I) but never advanced the Postgres
+sequences backing `events.id` / `write_decisions.id` / `review_queue.id`.
+Since `RESTART IDENTITY` leaves a sequence at its starting value and explicit
+`INSERT ... VALUES (id, ...)` does not advance it, the very next *live* write
+that relies on auto-generation (e.g. `recall()` logging its own retrieval
+event) collided with a migrated id — `migrate_sqlite_source_into_postgres_target_preserves_recall`
+caught this directly: the migration itself succeeded, but the test's
+subsequent `recall()` call panicked with a real Postgres unique-constraint
+violation. Fixed with a `sync_sequences_after_replay()` step (`setval` to
+`MAX(id)` per affected table) run at the end of every `rebuild_into()` call.
+SQLite has no equivalent gap (`INTEGER PRIMARY KEY` tracks max rowid directly,
+not via a separate sequence object) — this is Postgres-only.
 
 **Not done — genuine gaps, not silently skipped**:
-- **T019/T020**: no separate `src/services/migrate.rs` module exists. The
-  functionality lives directly as `rebuild::rebuild_into()` + the CLI's `migrate`
-  subcommand in `pamet.rs` — same Principle-I-reuse approach the task intended,
-  different file layout. The **refuse-non-empty-target guard (T020) was never
-  added** — `pamet migrate --to <existing-store>` will currently append/duplicate
-  rather than refusing. Needs a follow-up check (`SELECT COUNT(*) FROM events`
-  on the target before replay) before this is safe for a real adopted deployment.
 - **T024**: no test asserts the "clear error, not silent no-op" behavior for a
   `postgres://` URL on a build without `postgres-backend` — the code path
   (`Store::open_postgres`'s `#[cfg(not(...))]` arm) exists and returns a
@@ -221,6 +235,10 @@ unchanged on the default (no `postgres-backend`) build.
   not updated to mention the Postgres backend or `migrate` subcommand.
 
 **Disclosed deviations within "done" tasks**:
+- T019/T020: no separate `src/services/migrate.rs` module exists — the
+  functionality lives directly as `rebuild::rebuild_into()` + the CLI's
+  `migrate` subcommand in `pamet.rs`, same Principle-I-reuse approach the task
+  intended, different file layout.
 - Vector search (T010) scores via a Rust-side cosine scan read from the
   `vector` column, not pgvector's native `<=>` operator/index — same ranking
   behavior as SQLite for parity, but not yet exploiting the index FR-005 asked

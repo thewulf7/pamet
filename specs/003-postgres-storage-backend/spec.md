@@ -8,6 +8,13 @@
 
 **Input**: User description: "Migrate Pamet's storage backend off the embedded single-file store onto a production-grade, concurrent-capable backend, because the current embedded store cannot run consolidation and live remember/recall truly concurrently and has no native vector index. Keep the embedded single-file mode available as a sovereign/offline fallback. This is a prerequisite for a separate, later migration of existing data out of Hindsight into Pamet."
 
+## Clarifications
+
+### Session 2026-10-19
+
+- Q: FR-004 requires migration to be "safely re-runnable without producing duplicate items" — what does safe re-run mean? → A: Migration MUST refuse to run against a target that already contains any data; a re-run requires a fresh target (no idempotent per-row merge, no destructive auto-wipe).
+- Q: How is the production backend's connection info (credentials included) supplied? → A: Connection string via CLI argument/flag (same `--db` convention as the embedded store), not a separate config mechanism.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Consolidation and live traffic run truly concurrently (Priority: P1)
@@ -96,8 +103,10 @@ still works exactly as before this feature.
   migrated store MUST show that same entry still pending, not auto-resolved or dropped.
 - What happens when migrating a store with an interrupted consolidation run? MUST carry over
   as interrupted — migration MUST NOT silently complete or discard it.
-- What happens if migration is interrupted partway through? MUST be safely re-runnable
-  without producing duplicate items on the target backend.
+- What happens if migration is interrupted partway through? The target MUST be left in a
+  state that still refuses further migration attempts into it (per FR-004, a safe re-run
+  requires a fresh target, not a second attempt at the same one) — operators recover by
+  discarding the partial target and starting over against a clean one.
 - What happens when the new backend's similarity search and the embedded store's similarity
   search rank a borderline pair's similarity slightly differently (different vector-index
   implementations)? This is a documented, acceptable tolerance, not a correctness defect —
@@ -121,7 +130,10 @@ still works exactly as before this feature.
   design made this un-testable; the new backend MUST make it genuinely true and testable.
 - **FR-004**: System MUST provide a one-time migration capability that copies a complete
   existing embedded store (every event, every derived row across all tables) onto the new
-  backend without data loss, without duplication, and safely re-runnable if interrupted.
+  backend without data loss and without duplication. Migration MUST refuse to run against a
+  target that already contains any data (no idempotent per-row merge, no destructive
+  auto-wipe) — a safe re-run means pointing at a fresh target, not re-running against the
+  same one.
 - **FR-005**: System MUST support a native similarity-search index for memory embeddings on
   the new backend, replacing the embedded store's full-table brute-force scan, without
   changing the documented rule-based thresholds (merge/cluster/contradiction bands) that
@@ -131,7 +143,11 @@ still works exactly as before this feature.
   adopting a production backend MUST remain optional.
 - **FR-007**: The storage backend MUST be a configuration choice, not a code change; an
   unreachable configured production backend MUST fail fast at startup with a clear error,
-  never silently fall back to a different backend.
+  never silently fall back to a different backend. The backend (file path or connection
+  string, credentials included) is supplied via the same CLI argument/flag convention
+  already used for the embedded store (e.g. `--db`), not a second, separate config
+  mechanism — accepting that credentials may then appear in shell history or process
+  listings is a disclosed tradeoff (see Assumptions), not an oversight.
 - **FR-008**: Migration MUST be independently verifiable: exporting the event log from the
   migrated (new-backend) store and replaying it into a fresh store MUST produce state
   equivalent to the migrated store, exactly as Phase 1/2's existing replay guarantee already
@@ -194,3 +210,10 @@ still works exactly as before this feature.
   deprecated or scheduled for removal.
 - Existing Phase 1/Phase 2 schema shapes, event types, and rule-based thresholds carry
   forward unchanged; this feature is additive/substitutive at the storage layer only.
+- Connection credentials for the production backend are accepted via the same CLI
+  argument/flag already used for the embedded store's file path (FR-007) — this means
+  credentials can appear in shell history and process listings on the machine running
+  Pamet. This is a disclosed, accepted tradeoff for this feature (consistent with Pamet's
+  single-operator, self-hosted posture), not a gap; a secrets-manager/env-var-only
+  integration remains a candidate for a later feature if a multi-operator deployment model
+  is ever adopted.

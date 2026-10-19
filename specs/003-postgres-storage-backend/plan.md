@@ -52,8 +52,11 @@ connections this time, not single-connection interleaving). Similarity search un
 
 **Constraints**: Default build remains network-free and dependency-free (sovereignty
 constraint, carried over from Phase 1/2, extended here: adopting a production backend is
-strictly opt-in). Migration always targets a freshly-initialized store — no partial-resume
-state machine (data-model.md "Migration Run").
+strictly opt-in). Migration always targets a freshly-initialized store and refuses to run
+against a non-empty target (FR-004, clarified 2026-10-19) — no partial-resume state machine
+(data-model.md "Migration Run"). Connection info (credentials included) is supplied via the
+existing `--db`-style CLI argument, not a separate config mechanism (FR-007, clarified
+2026-10-19) — a disclosed tradeoff, not a gap (spec Assumptions).
 
 **Scale/Scope**: Up to 10,000 memory items for this feature's own performance targets (SC-002,
 SC-003) — an explicit step up from Phase 2's 1,000-item scale, since a production backend is

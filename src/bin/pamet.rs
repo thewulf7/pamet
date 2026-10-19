@@ -132,8 +132,11 @@ fn main() -> ExitCode {
 fn run_migrate(from: &str, to: &str) -> Result<ExitCode, pamet::Error> {
     let source = Store::open(from)?;
     let target = Store::open(to)?;
-    let n = pamet::services::rebuild::rebuild_into(&source, &target)?;
-    println!("migrated {n} events from {from} to {to}");
+    let summary = pamet::services::rebuild::rebuild_into(&source, &target)?;
+    println!(
+        "migration_complete items={} events={} reviews_pending={} reviews_resolved={}",
+        summary.items, summary.events, summary.reviews_pending, summary.reviews_resolved
+    );
     Ok(ExitCode::SUCCESS)
 }
 
