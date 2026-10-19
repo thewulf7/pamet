@@ -61,3 +61,40 @@ fn basic_remember_then_recall_roundtrip() {
 
     std::fs::remove_file(db_path).ok();
 }
+
+#[test]
+fn postgres_url_without_feature_fails_clearly_not_silently() {
+    // FR-007 / contracts/cli-contract.md "Feature gating": a postgres://
+    // URL on a build without `postgres-backend` must fail fast with a
+    // clear "not compiled in" error, never silently fall back to SQLite
+    // or no-op. This test only means anything when the smoke-test binary
+    // itself was built WITHOUT the postgres-backend feature (the default
+    // `cargo test` invocation, with no --features flag) — it's a no-op
+    // assertion-skip rather than a false pass if that feature happens to
+    // be on, since the behavior it's checking doesn't apply then.
+    if cfg!(feature = "postgres-backend") {
+        eprintln!("skipping: this binary was built WITH postgres-backend");
+        return;
+    }
+
+    let recall = Command::new(bin())
+        .args([
+            "--db",
+            "postgres://postgres:pamet@localhost:5433/pamet_test",
+            "recall",
+            "--query",
+            "anything",
+        ])
+        .output()
+        .expect("failed to run pamet recall");
+
+    assert!(
+        !recall.status.success(),
+        "a postgres:// URL on a build without postgres-backend must exit non-zero, not succeed"
+    );
+    let stderr = String::from_utf8_lossy(&recall.stderr);
+    assert!(
+        stderr.contains("postgres-backend") || stderr.contains("not compiled"),
+        "expected a clear 'not compiled in' error, got: {stderr}"
+    );
+}
