@@ -263,3 +263,25 @@ wait
   "the smallest-blast-radius option").
 - Commit after each phase checkpoint, not after every individual task — consistent with
   how features 003/004 committed per logical milestone, not per task.
+
+---
+
+## Phase 7: Convergence
+
+- [ ] T019 Add a direct test to `tests/integration/test_write_policy_scale.rs` planting
+  a true contradiction-band pair (shared tokens ≥2, a contradiction marker, scoring below
+  `CONTRADICTION_SIMILARITY_FLOOR`) and asserting it is still caught
+  (`Decision::Supersede`/`Decision::Review`, not silently missed) after pre-filtering,
+  per FR-003 / US2-AC2 / the "contradiction path must never silently miss a true match"
+  Edge Case (partial)
+- [ ] T020 Route `prefilter_never_misses_a_true_near_duplicate` (and T019's new
+  contradiction test) in `tests/integration/test_write_policy_scale.rs` through the
+  same `open_target()` helper `write_cost_stays_flat_on_overlapping_content` already
+  uses, so both run against Postgres too when `PAMET_TEST_POSTGRES_URL` is set — FR-003's
+  correctness guarantee has so far only been executably verified on SQLite, per FR-005
+  (partial)
+- [ ] T021 Add a direct, isolated SC-004 timing assertion to
+  `tests/integration/test_write_policy_scale.rs`: writing ~20 items to a fresh store
+  completes within a small absolute bound (e.g. a few ms/item), as a standing regression
+  guard rather than the inference-from-overall-CI-runtime spec.md's Results section
+  currently relies on, per SC-004 (partial)
