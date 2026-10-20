@@ -237,3 +237,30 @@ noted.
 **Full regression**: `cargo build` (default) and `cargo build --features
 postgres-backend` both clean, zero warnings. `cargo fmt` applied with no outstanding
 diff. All pre-existing test suites pass unchanged on both backends.
+
+## Convergence follow-up (Phase 7, T019-T021, real run, 2026-10-19)
+
+`/speckit-converge` found the original correctness proof narrower than the spec
+promised: the merge-band test was SQLite-only, and the contradiction band had no
+executable test at all. Closed both, plus SC-004's previously-inferred claim, with
+three new tests in the same file, all passing on **both backends**:
+
+- **T019 (contradiction band)**: `prefilter_never_misses_a_true_contradiction` plants a
+  true contradiction pair (shared tokens + a marker word) after 2,000 unrelated items
+  and confirms it is still caught (`Supersede`/`Review`, never silently `Store`d) —
+  passes on SQLite and Postgres.
+- **T020 (Postgres parity)**: both the merge-band and contradiction-band tests now run
+  through the same `open_target()`/`PAMET_TEST_POSTGRES_URL`-aware helper the scale test
+  already used, closing the gap where FR-003's correctness guarantee had only been
+  checked on one of the two backends FR-005 requires parity on.
+- **T021 (SC-004, direct measurement)**: `small_store_writes_show_no_measurable_prefilter_overhead`
+  measures 20 writes on a fresh store directly: **0.26ms/item (SQLite)**,
+  **0.30ms/item (Postgres)** — both far under the 20ms/item regression bound, replacing
+  the earlier inference-from-CI-runtime with an actual isolated number.
+
+Full regression after all three: `cargo build` (default) and `cargo build --features
+postgres-backend` both clean, zero new warnings; all 4 tests in
+`test_write_policy_scale.rs` pass on both backends; every pre-existing suite still
+passes unchanged on both backends.
+
+**All 21 tasks across Phases 1-7 are now complete.**

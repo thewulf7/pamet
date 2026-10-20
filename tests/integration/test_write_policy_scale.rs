@@ -1,17 +1,31 @@
 //! Feature 005: write-policy near-duplicate pre-filter scale regression test.
 //! Proves SC-002 (per-batch write cost does not grow more than 2x from first
-//! to last batch on topically-overlapping content) and FR-003 (the
-//! pre-filter never misses a true near-duplicate in the decisive merge
-//! band). Runs on the default SQLite build unconditionally (T006); also
-//! runnable against Postgres (T007) via `PAMET_TEST_POSTGRES_URL`, same
-//! pattern `tests/e2e/test_migration_e2e.rs` already uses.
+//! to last batch on topically-overlapping content), SC-004 (no measurable
+//! overhead on a small store), and FR-003 (the pre-filter never misses a
+//! true near-duplicate/contradiction in the decisive bands, on either
+//! backend — feature 005's original Phase 6 only tested the merge band on
+//! SQLite; Phase 7 convergence (T019-T021) closes both gaps). Runs on the
+//! default SQLite build unconditionally; also runnable against Postgres
+//! via `PAMET_TEST_POSTGRES_URL`, same pattern `tests/e2e/test_migration_e2e.rs`
+//! already uses.
 
 use pamet::{Interaction, Store};
+use std::sync::Mutex;
 use std::time::Instant;
 
 const BATCH_SIZE: usize = 200;
 const BATCH_COUNT: usize = 15; // 3,000 items total — enough to expose the
                                // original O(n) full-scan growth (feature 004 saw it clearly by item 2,800).
+
+/// All tests in this file share one Postgres database when
+/// `PAMET_TEST_POSTGRES_URL` is set (no per-test schema isolation) —
+/// serialize them so one test's truncate/write can't race another's, same
+/// pattern `tests/e2e/test_migration_e2e.rs` uses. Poison-tolerant so one
+/// test's panic can't cascade-fail the rest of the file.
+static DB_LOCK: Mutex<()> = Mutex::new(());
+fn lock_db() -> std::sync::MutexGuard<'static, ()> {
+    DB_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Deliberately topically-overlapping (not low-overlap synthetic text, which
 /// previously hid the problem): every sentence shares a bounded vocabulary
@@ -36,6 +50,18 @@ fn overlapping_fact(i: usize) -> String {
     let topic = topics[i % topics.len()];
     let verb = verbs[(i / topics.len()) % verbs.len()];
     format!("{topic} {verb}, item number {i}")
+}
+
+fn remember(store: &Store, text: &str) -> Vec<pamet::WriteDecisionOutcome> {
+    pamet::remember(
+        store,
+        &Interaction {
+            source_id: "scale_test".into(),
+            text: text.into(),
+            explicit_remember: true,
+        },
+    )
+    .unwrap()
 }
 
 fn open_target() -> (Store, bool) {
@@ -73,6 +99,7 @@ fn truncate(url: &str) {
 /// items in feature 004's real migration).
 #[test]
 fn write_cost_stays_flat_on_overlapping_content() {
+    let _guard = lock_db();
     let (store, is_postgres) = open_target();
     let mut batch_times = Vec::with_capacity(BATCH_COUNT);
     let mut i = 0usize;
@@ -80,15 +107,7 @@ fn write_cost_stays_flat_on_overlapping_content() {
     for _ in 0..BATCH_COUNT {
         let t0 = Instant::now();
         for _ in 0..BATCH_SIZE {
-            pamet::remember(
-                &store,
-                &Interaction {
-                    source_id: "scale_test".into(),
-                    text: overlapping_fact(i),
-                    explicit_remember: true,
-                },
-            )
-            .unwrap();
+            remember(&store, &overlapping_fact(i));
             i += 1;
         }
         let elapsed = t0.elapsed();
@@ -111,53 +130,30 @@ fn write_cost_stays_flat_on_overlapping_content() {
     );
 }
 
-/// T012/FR-003: a planted exact near-duplicate of an early-seeded item must
-/// still be caught by the pre-filtered merge decision, proving the
-/// provably-exact claim in research.md Decision 1 with a direct test, not
-/// just a mathematical argument.
+/// T012/T020/FR-003: a planted exact near-duplicate of an early-seeded item
+/// must still be caught by the pre-filtered merge decision, on whichever
+/// backend is configured — proving the provably-exact claim in research.md
+/// Decision 1 with a direct test on both dialects, not just SQLite.
 #[test]
 fn prefilter_never_misses_a_true_near_duplicate() {
-    let store = Store::open_in_memory().unwrap();
+    let _guard = lock_db();
+    let (store, _is_postgres) = open_target();
 
     // Seed a few thousand unrelated-topic items so the candidate set is
     // large enough that an unfiltered full scan would meaningfully differ
     // from a pre-filtered one if the pre-filter were lossy.
     for i in 0..2000 {
-        pamet::remember(
-            &store,
-            &Interaction {
-                source_id: "scale_test".into(),
-                text: overlapping_fact(i),
-                explicit_remember: true,
-            },
-        )
-        .unwrap();
+        remember(&store, &overlapping_fact(i));
     }
 
     let original = "the payments reconciliation job was updated by the team, item number 3";
-    pamet::remember(
-        &store,
-        &Interaction {
-            source_id: "scale_test".into(),
-            text: original.into(),
-            explicit_remember: true,
-        },
-    )
-    .unwrap();
+    remember(&store, original);
 
     // Near-duplicate: same tokens, reworded — must land in the merge band
     // and must still be found via the keyword pre-filter (shares every
     // meaningful token with `original`).
     let near_dup = "the payments reconciliation job was updated by the team item number 3";
-    let decisions = pamet::remember(
-        &store,
-        &Interaction {
-            source_id: "scale_test".into(),
-            text: near_dup.into(),
-            explicit_remember: true,
-        },
-    )
-    .unwrap();
+    let decisions = remember(&store, near_dup);
 
     assert!(
         decisions
@@ -166,5 +162,67 @@ fn prefilter_never_misses_a_true_near_duplicate() {
         "a near-duplicate of an early-seeded item must still be merged after \
          pre-filtering, got decisions: {:?}",
         decisions.iter().map(|d| d.decision).collect::<Vec<_>>()
+    );
+}
+
+/// T019/FR-003/US2-AC2/Edge Case: a true contradiction-band pair (shared
+/// tokens + a contradiction marker, scoring below
+/// `CONTRADICTION_SIMILARITY_FLOOR`) must still be caught after
+/// pre-filtering — the merge band alone (covered above) does not exercise
+/// `detect_contradiction`'s own candidate lookup, which is a materially
+/// different code path (`Decision::Supersede`/`Decision::Review`, not
+/// `Decision::Merge`). Text pair's contradiction classification was
+/// verified empirically against the real tokenizer before being hardcoded
+/// here (same approach `tests/integration/test_consolidation.rs` already
+/// uses for its own contradiction fixture).
+#[test]
+fn prefilter_never_misses_a_true_contradiction() {
+    let _guard = lock_db();
+    let (store, _is_postgres) = open_target();
+
+    for i in 0..2000 {
+        remember(&store, &overlapping_fact(i));
+    }
+
+    let original = "the quarterly review meeting happens tuesday afternoon in building two";
+    remember(&store, original);
+
+    // Shares >=2 tokens with `original` ("quarterly", "review", "tuesday")
+    // plus a contradiction marker ("not") — must still be classified as a
+    // contradiction (Supersede or Review, never silently Store'd as if
+    // unrelated) after pre-filtering.
+    let contradiction = "actually the quarterly review is not happening tuesday now";
+    let decisions = remember(&store, contradiction);
+
+    assert!(
+        decisions.iter().any(|d| matches!(
+            d.decision,
+            pamet::Decision::Supersede | pamet::Decision::Review
+        )),
+        "a true contradiction of an early-seeded item must still be caught (not \
+         silently stored as unrelated) after pre-filtering, got decisions: {:?}",
+        decisions.iter().map(|d| d.decision).collect::<Vec<_>>()
+    );
+}
+
+/// T021/SC-004: writing to a small store must show no measurable overhead
+/// from the pre-filter's own keyword-index lookup — a direct, isolated
+/// measurement rather than the inference-from-overall-CI-runtime spec.md's
+/// Results section previously relied on.
+#[test]
+fn small_store_writes_show_no_measurable_prefilter_overhead() {
+    let store = Store::open_in_memory().unwrap();
+    let n = 20;
+    let t0 = Instant::now();
+    for i in 0..n {
+        remember(&store, &overlapping_fact(i));
+    }
+    let elapsed = t0.elapsed();
+    let per_item_ms = elapsed.as_secs_f64() * 1000.0 / n as f64;
+    println!("small store: {n} items in {elapsed:?} ({per_item_ms:.2}ms/item)");
+    assert!(
+        per_item_ms < 20.0,
+        "SC-004 violated: {per_item_ms:.2}ms/item on a small store is too slow for a \
+         cheap pre-filter that should cost ~nothing when there's little to filter"
     );
 }
