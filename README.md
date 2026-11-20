@@ -13,6 +13,20 @@ This repo implements:
   (behind the `postgres-backend` Cargo feature) for genuine concurrent connections, alongside
   the unchanged embedded SQLite backend as a permanent offline/sovereign fallback, plus a
   `pamet migrate` subcommand to move an existing store onto it.
+- **Feature 004: Hindsight → Pamet Migration + Comparison** — (behind the `baseline-hindsight`
+  Cargo feature) a real `remember()`-path migration from a live Hindsight bank
+  (`pamet import-hindsight`, resumable via a side-SQLite ledger so write-policy decisions apply
+  to migrated data exactly as they would to a live write) and a quality/speed comparison harness
+  against the real corpus (`pamet compare-hindsight`). Run against real production data, this
+  is what surfaced feature 005's bug.
+- **Feature 005: Fix Pamet's Write-Policy Scan** — feature 004's real migration run exposed
+  genuine superlinear (effectively quadratic) write cost on topically-overlapping real data: the
+  near-duplicate scan compared every write candidate against every active item via exact cosine
+  similarity. Fixed with a keyword-index pre-filter (`candidate_items()`, reusing the existing
+  BM25-style index) before the exact scan, verified flat-cost on both the real corpus and a
+  dedicated regression test, on both the SQLite and Postgres backends, without changing any
+  write-policy decision threshold (Constitution Principle III: rules untouched, only the
+  candidate set narrows).
 
 ## Build & run
 
@@ -23,6 +37,9 @@ cargo test
 # Optional: Postgres+pgvector backend (default build stays fully offline/dependency-free)
 cargo build --release --features postgres-backend
 cargo test --release --features postgres-backend   # needs PAMET_TEST_POSTGRES_URL reachable
+
+# Optional: Hindsight migration + comparison tooling
+cargo build --release --features baseline-hindsight
 ```
 
 Selecting a backend is a `--db` value, not a code change: a file path (or `:memory:`) uses the
@@ -60,3 +77,6 @@ against a true no-memory baseline).
   for the initial feature.
 - `specs/002-consolidation-eval-harness/` — same artifact set for consolidation + eval harness.
 - `specs/003-postgres-storage-backend/` — same artifact set for the Postgres backend + migration.
+- `specs/004-hindsight-pamet-memory-migration/` — same artifact set for the Hindsight migration
+  and comparison harness.
+- `specs/005-fix-pamet-write/` — same artifact set for the write-policy pre-filter fix.

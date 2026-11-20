@@ -1,6 +1,6 @@
 [package]
 name = "pamet"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
 description = "Pamet memory store MVP: rule-based write policy + hybrid retrieval + outcome logging"
 
