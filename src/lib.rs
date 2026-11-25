@@ -58,15 +58,40 @@ pub fn remember(store: &Store, interaction: &Interaction) -> Result<Vec<WriteDec
 /// one independently-logged candidate per statement, instead of collapsing
 /// them into one write decision.
 fn extract_candidate_texts(text: &str) -> Vec<String> {
-    let parts: Vec<String> = text
-        .split(['.', '!', '?', '\n'])
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    if parts.is_empty() {
-        // Nothing survived splitting (e.g. the text was pure punctuation) —
-        // fall back to the whole trimmed text as a single candidate so every
-        // interaction still produces at least one decision (spec SC-001).
+    // Split on sentence-ending punctuation / newlines. For question-terminated
+    // segments we discard the fragment — questions are conversational, not facts
+    // to persist.
+    let chars: Vec<char> = text.chars().collect();
+    let mut parts: Vec<String> = Vec::new();
+    let mut start = 0usize;
+    let delimiters = ['.', '!', '?', '\n'];
+    let mut hit_delimiter = false;
+    for (i, &ch) in chars.iter().enumerate() {
+        if delimiters.contains(&ch) {
+            hit_delimiter = true;
+            let segment: String = chars[start..i].iter().collect();
+            let segment = segment.trim().to_string();
+            if !segment.is_empty() && ch != '?' {
+                // Only store segments that did NOT end with a question mark —
+                // questions asked of the user are not facts to persist.
+                parts.push(segment);
+            }
+            start = i + 1;
+        }
+    }
+    // Trailing segment with no delimiter at end.
+    let tail: String = chars[start..].iter().collect();
+    let tail = tail.trim().to_string();
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+
+    if parts.is_empty() && !hit_delimiter {
+        // No delimiter was encountered at all — the text is a bare phrase with
+        // no sentence-ending punctuation. Treat it as a single candidate only
+        // if it isn't empty. If we DID hit a delimiter but all segments were
+        // filtered (e.g. everything was a question), return empty rather than
+        // falling back to the full text.
         let trimmed = text.trim().to_string();
         if trimmed.is_empty() {
             Vec::new()
@@ -534,4 +559,41 @@ pub fn export_log(store: &Store, since: Option<&str>) -> Result<Vec<services::ev
 /// separate entry point from `remember`/`recall` (Principle IV).
 pub fn consolidate(store: &Store) -> Result<services::consolidation::ConsolidationSummary> {
     services::consolidation::run(store)
+}
+
+#[cfg(test)]
+mod extract_tests {
+    use super::*;
+
+    #[test]
+    fn question_fragments_dropped() {
+        // "so what you have in Pamet?" should produce nothing — it's a question.
+        let parts = extract_candidate_texts("so what you have in Pamet?");
+        assert!(parts.is_empty(), "expected empty, got {:?}", parts);
+    }
+
+    #[test]
+    fn statement_kept() {
+        let parts = extract_candidate_texts("Evgenii is an engineering manager at SAP Concur.");
+        assert_eq!(parts, vec!["Evgenii is an engineering manager at SAP Concur"]);
+    }
+
+    #[test]
+    fn mixed_question_and_statement() {
+        // Statement before question: keep the statement, drop the question fragment.
+        let parts = extract_candidate_texts("Sylvie is the recruiter. Who is the manager?");
+        assert_eq!(parts, vec!["Sylvie is the recruiter"]);
+    }
+
+    #[test]
+    fn trailing_text_without_delimiter_kept() {
+        let parts = extract_candidate_texts("user is Evgenii Utkin");
+        assert_eq!(parts, vec!["user is Evgenii Utkin"]);
+    }
+
+    #[test]
+    fn bare_question_produces_no_parts() {
+        let parts = extract_candidate_texts("who am i?");
+        assert!(parts.is_empty(), "bare question should produce no parts");
+    }
 }

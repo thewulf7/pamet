@@ -179,10 +179,50 @@ pub(crate) fn detect_contradiction(candidate: &Candidate, best_match: Option<&Me
 }
 
 fn is_low_value(content: &str) -> bool {
-    let low_value_markers = ["lol", "ok", "k", "haha", "hi", "hello"];
+    // Too short to be meaningful: fewer than 3 tokens (single words, fragments,
+    // bare punctuation survivors like "go", "ml", "pamet", "name=").
     let tokens = embedding::tokenize(content);
-    !tokens.is_empty()
-        && tokens
-            .iter()
-            .all(|t| low_value_markers.contains(&t.as_str()))
+    if tokens.len() < 3 {
+        return true;
+    }
+    // All tokens are common filler / chat-speak.
+    let low_value_markers = ["lol", "ok", "k", "haha", "hi", "hello"];
+    tokens
+        .iter()
+        .all(|t| low_value_markers.contains(&t.as_str()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_token_is_low_value() {
+        assert!(is_low_value("pamet"));
+        assert!(is_low_value("go"));
+        assert!(is_low_value("ml"));
+        assert!(is_low_value("name="));
+    }
+
+    #[test]
+    fn two_tokens_is_low_value() {
+        assert!(is_low_value("so what"));
+    }
+
+    #[test]
+    fn three_tokens_is_not_low_value() {
+        assert!(!is_low_value("Evgenii is manager"));
+    }
+
+    #[test]
+    fn chat_filler_is_low_value() {
+        assert!(is_low_value("ok"));
+        assert!(is_low_value("lol haha"));
+        assert!(is_low_value("hi hello"));
+    }
+
+    #[test]
+    fn substantive_content_not_low_value() {
+        assert!(!is_low_value("Sylvie is the recruiter for requisition 456236"));
+    }
 }
