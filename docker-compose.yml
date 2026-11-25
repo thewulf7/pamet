@@ -1,0 +1,19 @@
+services:
+  pamet:
+    build:
+      context: .
+      # args:
+      #   FEATURES: postgres-backend,mcp,baseline-hindsight
+    image: pamet:latest
+    volumes:
+      - pamet-data:/data
+    environment:
+      - PAMET_DB=/data/pamet.db
+    # `pamet` is a CLI, not a long-running server — run one-off commands:
+    #   docker compose run --rm pamet --db /data/pamet.db remember --text "..." --explicit-remember
+    #   docker compose run --rm pamet --db /data/pamet.db recall --query "..."
+    entrypoint: ["pamet"]
+    command: ["--db", "/data/pamet.db", "--help"]
+
+volumes:
+  pamet-data:

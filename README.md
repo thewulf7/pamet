@@ -42,6 +42,23 @@ cargo test --release --features postgres-backend   # needs PAMET_TEST_POSTGRES_U
 cargo build --release --features baseline-hindsight
 ```
 
+### Docker
+
+```sh
+docker build -t pamet .
+docker volume create pamet-data   # persists the SQLite store across container runs
+
+docker run --rm -v pamet-data:/data pamet --db /data/pamet.db remember \
+  --text "a fact" --explicit-remember
+docker run --rm -v pamet-data:/data pamet --db /data/pamet.db recall --query "a fact"
+```
+
+`pamet` is a CLI, not a server — there's nothing to "start"; each `docker run` is one command
+against the store in the named volume. Build in extra capability with `--build-arg
+FEATURES=postgres-backend,mcp,baseline-hindsight` (comma-separated, passed straight to `cargo
+build --features`). `docker-compose.yml` wraps the same image for `docker compose run --rm pamet
+...`.
+
 Selecting a backend is a `--db` value, not a code change: a file path (or `:memory:`) uses the
 embedded SQLite store exactly as before; a `postgres://`/`postgresql://` URL (postgres-backend
 build only) uses Postgres. See `specs/003-postgres-storage-backend/quickstart.md` for a full
