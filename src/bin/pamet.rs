@@ -97,15 +97,29 @@ enum Command {
 
 #[derive(Subcommand)]
 enum ReviewAction {
+    /// List pending review items. With --enriched (default): shows summary text and source count.
     List {
         #[arg(long)]
         status: Option<String>,
+        /// Max items to return (default 20).
+        #[arg(long, default_value = "20")]
+        limit: usize,
     },
     Resolve {
         #[arg(long)]
         review_id: i64,
         #[arg(long)]
         decision: String,
+    },
+    /// T013 [US3]: Approve all pending review items for a cluster.
+    ApproveCluster {
+        /// Cluster ID (from `review list` output).
+        cluster_id: String,
+    },
+    /// T013 [US3]: Skip all pending review items for a cluster.
+    SkipCluster {
+        /// Cluster ID (from `review list` output).
+        cluster_id: String,
     },
 }
 
@@ -209,13 +223,25 @@ fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Review { action } => match action {
-            ReviewAction::List { status } => {
-                let rows =
-                    pamet::services::review::list(store, status.as_deref().or(Some("pending")))?;
+            ReviewAction::List { status, limit } => {
+                let rows = pamet::list_enriched_review(
+                    store,
+                    status.as_deref().or(Some("pending")),
+                    limit,
+                )?;
                 for r in rows {
+                    let summary = r.summary_text
+                        .map(|t| {
+                            let truncated = t.chars().take(80).collect::<String>();
+                            if t.len() > 80 { format!("{}…", truncated) } else { truncated }
+                        })
+                        .unwrap_or_else(|| "(no summary)".to_string());
+                    let cluster = r.cluster_id
+                        .map(|c| format!(" cluster_id={c}"))
+                        .unwrap_or_default();
                     println!(
-                        "{} wd={} reason={} status={}",
-                        r.id, r.write_decision_id, r.reason, r.status
+                        "{} reason={} sources={}{} \"{}\"",
+                        r.id, r.reason, r.source_count, cluster, summary
                     );
                 }
                 Ok(ExitCode::SUCCESS)
@@ -229,6 +255,16 @@ fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
                 })?;
                 pamet::resolve_review(store, review_id, decision)?;
                 println!("ok");
+                Ok(ExitCode::SUCCESS)
+            }
+            ReviewAction::ApproveCluster { cluster_id } => {
+                let n = pamet::approve_cluster(store, &cluster_id)?;
+                println!("ok clusters_approved={n}");
+                Ok(ExitCode::SUCCESS)
+            }
+            ReviewAction::SkipCluster { cluster_id } => {
+                let n = pamet::skip_cluster(store, &cluster_id)?;
+                println!("ok clusters_skipped={n}");
                 Ok(ExitCode::SUCCESS)
             }
         },

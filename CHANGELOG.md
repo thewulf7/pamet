@@ -3,6 +3,61 @@
 All notable changes to Pamet are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tagged on `master`.
 
+## [0.6.0] — 2026-11-26
+
+Feature 006: memory pipeline quality improvements. Fixes five issues found
+during real-world use: noisy prefetch queries, missing assistant-turn retention,
+inaccessible review queue, absent outcome feedback loop, and unconfigurable
+prefetch budget. Also patches two correctness bugs caught by the converge loop
+(duplicate review_id on cluster operations, missing `cluster_id` in list output).
+
+### Added
+- **Prefetch stop-word gate** (`~/.hermes/plugins/pamet/__init__.py`): short or
+  noise-only queries (< 3 signal tokens after stop-word removal) now skip the
+  `pamet recall` subprocess call entirely, eliminating false recall noise on
+  messages like "who am i?", "go", "ok".  Stop-word list is a frozen set of 20
+  common English function words; configurable at the Python layer without a Rust
+  rebuild.
+- **Configurable prefetch budget**: `plugins.pamet.prefetch_budget` in Hermes
+  `config.yaml` controls how many results the prefetch call requests (default 5).
+  Set to `0` to fully disable prefetch (useful during low-context sessions).
+- **Assistant-turn retention**: `sync_turn()` now also writes `assistant_content`
+  (up to 2 000 chars) through the same `remember` write path, so agent replies
+  containing durable facts are captured, not only user messages.  Low-value gate
+  applies: assistant content with < 3 tokens is silently skipped (no subprocess
+  round-trip).
+- **Enriched review list** (`pamet review list --limit N`): output now includes
+  `cluster_id=<val>` alongside reason, source count, and summary preview so a
+  human can feed the ID directly into `approve-cluster` / `skip-cluster`.
+- **Batch cluster operations**: `pamet review approve-cluster <cluster_id>` and
+  `pamet review skip-cluster <cluster_id>` resolve all pending review items for a
+  cluster in a single command.  Verified at 287 ms on an 18 000-member cluster
+  (SC-004 ≤ 1 s SLA).
+- **`cluster_members(summary_item_id)` index** (`src/storage/schema.rs`): speeds
+  up the `GROUP BY` subquery in `list_enriched` on stores with 1 000+ cluster
+  members.  EXPLAIN confirms COVERING INDEX use on both the aggregate subquery and
+  the direct join.
+
+### Fixed
+- **Duplicate review_id on cluster operations** (`src/services/review.rs`):
+  `resolve_cluster_items` used a plain JOIN that produced N rows per cluster (one
+  per `cluster_members` row), causing `resolve()` to error with `NotPending` after
+  the first call and abort the entire approve/skip for any cluster with > 1 member.
+  Fixed with `SELECT DISTINCT`.
+- **`is_low_value` threshold** (`src/services/write_policy.rs`): inputs of < 3
+  tokens (single word, two words) were not caught by the previous filler-word
+  list; now rejected unconditionally before the filler check.
+- **Question-fragment storage** (`src/lib.rs`): `extract_candidate_texts` now
+  drops `?`-terminated segments so bare questions are never written as facts.
+  A `hit_delimiter` flag prevents the whole-text fallback from re-emitting
+  question-only input.
+
+### Removed
+- **Postgres branches in `review.rs`**: the five `#[cfg(feature = "postgres-backend")]`
+  / `Backend::Postgres` blocks in `src/services/review.rs` were dormant dead code
+  — `review.rs` only ever ran on SQLite.  Removed for clarity; the rest of the
+  codebase continues to support the `postgres-backend` feature flag.
+
 ## [0.5.0] — 2026-10-20 (first tagged release)
 
 First tagged release, covering everything built to date (features 001-005). No prior

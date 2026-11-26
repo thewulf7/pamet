@@ -27,6 +27,24 @@ This repo implements:
   dedicated regression test, on both the SQLite and Postgres backends, without changing any
   write-policy decision threshold (Constitution Principle III: rules untouched, only the
   candidate set narrows).
+- **Feature 006: Memory Pipeline Quality** — five real-world quality issues fixed and two
+  correctness bugs caught and patched through the speckit converge loop:
+  - *Prefetch noise*: a stop-word gate (`_filter_prefetch_query`) drops noise-only queries
+    before the subprocess call; < 3 signal tokens → no recall attempt.
+  - *Missing assistant-turn retention*: `sync_turn()` now writes `assistant_content` (≤ 2 000
+    chars) through the same `remember` path as user messages, subject to the same low-value gate.
+  - *Inaccessible review queue*: `pamet review list --limit N` now shows enriched output
+    (summary preview, source count, `cluster_id`); `review approve-cluster <id>` and
+    `review skip-cluster <id>` resolve whole clusters in one command (287 ms on an 18K-member
+    cluster).
+  - *Unconfigurable prefetch budget*: `plugins.pamet.prefetch_budget` in Hermes `config.yaml`
+    (default 5; `0` disables prefetch entirely).
+  - *`cluster_members(summary_item_id)` index*: added to schema so enriched list queries use a
+    covering index instead of a full scan.
+  - *Bug fix*: `resolve_cluster_items` used a non-DISTINCT JOIN, causing N-1 spurious
+    `NotPending` errors on any cluster with > 1 member — fixed with `SELECT DISTINCT`.
+  - *Dead code removal*: five dormant Postgres branches in `review.rs` removed; that file is
+    now SQLite-only (the rest of the codebase keeps the `postgres-backend` feature flag).
 
 ## Build & run
 
@@ -97,3 +115,5 @@ against a true no-memory baseline).
 - `specs/004-hindsight-pamet-memory-migration/` — same artifact set for the Hindsight migration
   and comparison harness.
 - `specs/005-fix-pamet-write/` — same artifact set for the write-policy pre-filter fix.
+- `specs/006-memory-pipeline-quality/` — same artifact set for the pipeline quality improvements
+  (feature 006, v0.6.0).

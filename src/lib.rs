@@ -522,6 +522,25 @@ pub fn resolve_review(store: &Store, review_id: i64, decision: Decision) -> Resu
     services::review::resolve(store, review_id, decision)
 }
 
+/// T012 [US3]: Approve all pending review items for a cluster (promotes summary, suppresses sources).
+pub fn approve_cluster(store: &Store, cluster_id: &str) -> Result<usize> {
+    services::review::approve_cluster(store, cluster_id)
+}
+
+/// T012 [US3]: Skip all pending review items for a cluster (source items remain active).
+pub fn skip_cluster(store: &Store, cluster_id: &str) -> Result<usize> {
+    services::review::skip_cluster(store, cluster_id)
+}
+
+/// T012 [US3]: Enriched review list with summary text and source count per item.
+pub fn list_enriched_review(
+    store: &Store,
+    status_filter: Option<&str>,
+    limit: usize,
+) -> Result<Vec<services::review::EnrichedReviewRow>> {
+    services::review::list_enriched(store, status_filter, limit)
+}
+
 /// Tombstone a memory item (FR-014) — reversible via the event log, never a
 /// hard delete.
 pub fn tombstone(store: &Store, item_id: &str) -> Result<()> {

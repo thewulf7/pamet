@@ -96,6 +96,10 @@ CREATE TABLE IF NOT EXISTS cluster_members (
     created_at             TEXT NOT NULL
 );
 
+-- T029 [Convergence/SC-003]: index on summary_item_id speeds up the GROUP BY subquery in
+-- list_enriched() which aggregates cluster_members per summary_item_id on every review list call.
+CREATE INDEX IF NOT EXISTS cluster_members_summary_item_id_idx ON cluster_members(summary_item_id);
+
 -- Phase 2: eval harness (data-model.md).
 CREATE TABLE IF NOT EXISTS eval_results (
     id                  TEXT PRIMARY KEY,
