@@ -1,30 +1,46 @@
 <!--
 Sync Impact Report
-Version change: [TEMPLATE] → 1.0.0 (initial ratification)
-Modified principles: n/a (first filled version)
-Added sections:
-  - Core Principles (6): Event-Sourced Spine; Provenance & Reversibility by Construction;
-    Rules Before Learning; Two-Speed Memory Separation; Eval-Gated Promotion;
-    Open-Protocol, Build-Don't-Reinvent
-  - Architecture & Technology Constraints
-  - Development Workflow & Phasing
-  - Governance
-Removed sections: none (template placeholders only)
+Version change: 1.0.0 → 1.1.0
+Modified principles: none (Principles I-VI unchanged; this is a stack-decision
+  resolution within the existing Architecture & Technology Constraints section)
+Added sections: none
+Removed sections: none
+Modified sections:
+  - Architecture & Technology Constraints → Store: resolved from "SQLite or Postgres"
+    to SQLite-only. Decision made 2026-11-26: the postgres-backend Cargo feature is
+    being removed project-wide (dead code accumulating real maintenance cost —
+    a build-breaking regression in it had to be fixed mid-session before this
+    amendment). SQLite-only is also now concretely true, not just an option: vector
+    search via sqlite-vec and keyword search via SQLite FTS5/BM25 are both already
+    real, shipped retrieval paths (src/services/retrieval_vector.rs,
+    src/services/retrieval_keyword.rs), not aspirational.
+  - Architecture & Technology Constraints → Embeddings: resolved the
+    TODO(STACK_DECISION) base-embedder choice. Decision made 2026-11-26: a frozen
+    local sentence-embedding model loaded via ONNX Runtime (the `ort` crate),
+    replacing the MVP's interim hashed bag-of-words embedding
+    (src/services/embedding.rs). Exact model/dimensionality is an implementation
+    detail for that feature's own spec, not fixed here. Trainable `Wq`/`Wk`
+    projections remain the only learned component planned for Phase 3, unchanged.
 Templates requiring updates:
-  ✅ .specify/templates/plan-template.md — Constitution Check gate is generic
-     ("[Gates determined based on constitution file]"), no edits needed.
+  ✅ .specify/templates/plan-template.md — Technical Context's "Storage" field is a
+     generic example list ("e.g., PostgreSQL, CoreData, files or N/A"), not a
+     Pamet-specific hardcoded assumption; no edit needed.
   ✅ .specify/templates/spec-template.md — no agent/principle-specific hardcoding found.
-  ✅ .specify/templates/tasks-template.md — generic phase structure already compatible
-     with Setup → Foundational → Eval-gate → Story phases implied by this constitution.
+  ✅ .specify/templates/tasks-template.md — generic phase structure, no edit needed.
   ✅ .specify/templates/checklist-template.md — not principle-specific.
+  ⚠ README.md, docs/GUIDE.md, Cargo.toml, Dockerfile — still describe
+     postgres-backend as a currently-available optional feature; tracked by a
+     separate in-flight task (kanban t_af2164b1, "Delete postgres-backend feature
+     from Pamet") rather than fixed by this amendment.
 Follow-up TODOs:
   - TODO(STACK_DECISION): final choice of event bus (NATS JetStream vs Redpanda vs
-    Kafka-compatible) and agent framework/base models deferred — see
-    what-we-could-build-overview.md "Decisions needed". Principle VI constrains the
-    choice (must stay Kafka-compatible) without picking a specific vendor.
+    Kafka-compatible) still deferred — see what-we-could-build-overview.md
+    "Decisions needed". Principle VI constrains the choice (must stay
+    Kafka-compatible) without picking a specific vendor. Unaffected by this
+    amendment.
   - TODO(DEPLOYMENT_MODEL): personal-assistant vs team/product-agent scope not yet
     decided; affects privacy/multi-user principles and may require a new principle
-    once resolved.
+    once resolved. Unaffected by this amendment.
 -->
 
 # Pamet Constitution
@@ -94,16 +110,22 @@ differentiator.
 ## Architecture & Technology Constraints
 
 - **Store**: items (episode, fact, preference, procedure) carry embeddings,
-  entities, timestamps, provenance, and supersedes-links; persisted in
-  SQLite or Postgres with a vector index and BM25 (graph is optional/light).
+  entities, timestamps, provenance, and supersedes-links; persisted in SQLite
+  only — vector search via `sqlite-vec` and keyword search via SQLite FTS5/BM25
+  (graph is optional/light). No Postgres or other RDBMS backend: SQLite-only
+  keeps the project self-hosted and dependency-free by default (decided
+  2026-11-26, superseding the earlier SQLite-or-Postgres dual-backend option).
 - **Event bus**: Kafka-compatible log (NATS JetStream or Redis Streams acceptable
   for early phases; Redpanda/Kafka acceptable at scale) carrying `agent.*`,
   `llm.*`, `memory.*`, `outcome.*`, `governance.*` topics with replay and
   dead-letter support.
-- **Embeddings**: start from a frozen base embedder; trainable query/key
-  projections (`Wq`, `Wk`) are the only learned component in Phase 3 — do not
-  fine-tune the base embedder until projections are proven insufficient.
-  TODO(STACK_DECISION): specific base embedder and bus vendor are not yet chosen.
+- **Embeddings**: a frozen local sentence-embedding model loaded via ONNX
+  Runtime (the `ort` crate), never fine-tuned (decided 2026-11-26, resolving
+  the earlier open stack decision; exact model and dimensionality are an
+  implementation detail of the feature that introduces it, not fixed here).
+  Trainable query/key projections (`Wq`, `Wk`) are the only learned component
+  in Phase 3 — do not fine-tune the base embedder until projections are proven
+  insufficient. TODO(STACK_DECISION): event bus vendor is still not chosen.
 - **Deployment**: MUST support a self-hosted / on-prem mode (sovereign-friendly);
   no feature may require a cloud-only dependency as its sole implementation.
 
@@ -142,4 +164,4 @@ any deviation MUST be recorded in the Complexity Tracking section of the
 relevant `plan.md` with a justification. Use `AGENTS.md` and this constitution
 together for runtime development guidance.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-16 | **Last Amended**: 2026-10-16
+**Version**: 1.1.0 | **Ratified**: 2026-10-16 | **Last Amended**: 2026-11-26
