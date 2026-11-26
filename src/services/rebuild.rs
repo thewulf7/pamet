@@ -186,6 +186,7 @@ fn apply_event(store: &Store, event: &Event) -> Result<()> {
         // the event itself (already re-inserted above) is the full audit trail
         "hindsight_memory_migrated" => {} // feature 004: pure provenance record, no derived
         // state of its own — the event itself (already re-inserted above) is the audit trail
+        "cluster_gram_model_built" => apply_cluster_gram_model_built(store, &payload)?,
         other => {
             return Err(Error::MalformedEvent(format!(
                 "unknown event_type '{other}' during replay"
@@ -679,4 +680,35 @@ fn apply_eval_run_completed(store: &Store, payload: &serde_json::Value) -> Resul
         }
     }
     Ok(())
+}
+
+/// T022/US3/FR-008: re-insert a `cluster_gram_models` row verbatim from the
+/// event payload — a pure re-insert, not a recomputation, which is what
+/// makes replay byte-for-byte (SC-004), not merely "a model of the same
+/// shape". The full model (including `table_json`) was already serialized
+/// into this event's payload by `gram::persist()` at write time.
+fn apply_cluster_gram_model_built(store: &Store, payload: &serde_json::Value) -> Result<()> {
+    let table_json = payload["table_json"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let model = crate::services::gram::ClusterGramModel {
+        cluster_id: payload["cluster_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+        consolidation_run_id: payload["consolidation_run_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+        gram_order: payload["gram_order"].as_u64().unwrap_or(0) as usize,
+        vocab_size: payload["vocab_size"].as_u64().unwrap_or(0) as usize,
+        training_token_count: payload["training_token_count"].as_u64().unwrap_or(0) as usize,
+        table: serde_json::from_str(&table_json)?,
+        created_at: payload["created_at"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+    };
+    crate::services::gram::insert_from_replay(store, &model, &table_json)
 }

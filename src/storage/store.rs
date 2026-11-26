@@ -58,6 +58,7 @@ impl Store {
     fn init_sqlite(conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(super::schema::SQLITE_SCHEMA_SQL)?;
+        super::migrations::ensure_events_check_constraint_current_sqlite(&conn)?;
         Ok(Self {
             backend: Backend::Sqlite(conn),
         })
@@ -70,6 +71,7 @@ impl Store {
             let mut conn = pool.get()?;
             conn.batch_execute(super::schema::POSTGRES_SCHEMA_SQL)?;
         }
+        super::migrations::ensure_events_check_constraint_current_postgres(&pool)?;
         Ok(Self {
             backend: Backend::Postgres(pool),
         })

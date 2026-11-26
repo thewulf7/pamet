@@ -594,7 +594,10 @@ mod extract_tests {
     #[test]
     fn statement_kept() {
         let parts = extract_candidate_texts("Evgenii is an engineering manager at SAP Concur.");
-        assert_eq!(parts, vec!["Evgenii is an engineering manager at SAP Concur"]);
+        assert_eq!(
+            parts,
+            vec!["Evgenii is an engineering manager at SAP Concur"]
+        );
     }
 
     #[test]

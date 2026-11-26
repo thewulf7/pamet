@@ -7,7 +7,7 @@
 
 use crate::error::Result;
 use crate::models::{Cluster, MemoryItem, ReviewReason};
-use crate::services::{embedding, events, write_policy};
+use crate::services::{embedding, events, gram, write_policy};
 use crate::storage::{Backend, Store};
 use chrono::Utc;
 use rusqlite::params;
@@ -20,6 +20,10 @@ pub struct ConsolidationSummary {
     pub clusters_formed: i64,
     pub contradictions_flagged: i64,
     pub items_decayed: i64,
+    /// Feature 008: clusters this run formed whose combined member text was
+    /// too short to be a meaningful n-gram model (< `gram::GRAM_ORDER`
+    /// tokens) — not an error, just skipped (FR-003/Edge Case).
+    pub grams_skipped_too_small: i64,
 }
 
 /// Run one consolidation pass: cluster near-duplicates into summaries, flag
@@ -57,8 +61,12 @@ pub fn run(store: &Store) -> Result<ConsolidationSummary> {
     let items_processed = items.len() as i64;
 
     let clusters = cluster_items(&items);
+    let mut grams_skipped_too_small = 0i64;
     for cluster in &clusters {
-        form_summary(store, &run_id, cluster, &items)?;
+        let gram_built = form_summary(store, &run_id, cluster, &items)?;
+        if !gram_built {
+            grams_skipped_too_small += 1;
+        }
     }
     let clusters_formed = clusters.len() as i64;
 
@@ -100,6 +108,7 @@ pub fn run(store: &Store) -> Result<ConsolidationSummary> {
         clusters_formed,
         contradictions_flagged,
         items_decayed,
+        grams_skipped_too_small,
     })
 }
 
@@ -315,12 +324,15 @@ fn cluster_items(items: &[MemoryItem]) -> Vec<Cluster> {
 
 /// Summary generation (research.md §2): deterministic "longest content
 /// wins", not an LLM summary — a rule-based predecessor for Principle III.
+/// Returns `true` if a gram model (feature 008) was built and persisted for
+/// this cluster, `false` if its combined member text was too small
+/// (FR-003/Edge Case) — used by `run()` to report `grams_skipped_too_small`.
 fn form_summary(
     store: &Store,
     run_id: &str,
     cluster: &Cluster,
     items: &[MemoryItem],
-) -> Result<()> {
+) -> Result<bool> {
     let members: Vec<&MemoryItem> = cluster
         .member_item_ids
         .iter()
@@ -413,7 +425,19 @@ fn form_summary(
     // --decision store` (accept) or `--decision skip` (reject).
     write_review_gate(store, &summary_id, &chosen.content, summary_event_id, &now)?;
 
-    Ok(())
+    // Feature 008 (US1): derive and persist a frozen trigram model from this
+    // cluster's member texts. `cluster.cluster_id` is minted fresh exactly
+    // once per cluster (see `cluster_items()`) and its membership never
+    // changes afterward, so there is no "stale model" case to detect here —
+    // `gram::persist()`'s `ON CONFLICT DO NOTHING` is purely defensive.
+    let member_texts: Vec<String> = members.iter().map(|m| m.content.clone()).collect();
+    match gram::build_for_cluster(&cluster.cluster_id, run_id, &member_texts) {
+        Some(model) => {
+            gram::persist(store, &model)?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
 }
 
 /// Source items whose cluster's summary has been confirmed (non-pending,

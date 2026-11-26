@@ -30,7 +30,12 @@ pub struct ReviewQueueRow {
 
 pub fn list(store: &Store, status_filter: Option<&str>) -> Result<Vec<ReviewQueueRow>> {
     let mut out = Vec::new();
-    let Backend::Sqlite(conn) = &store.backend;
+    let Backend::Sqlite(conn) = &store.backend else {
+        return Err(Error::Validation(
+            "review::list requires the sqlite backend (postgres-backend not yet supported here)"
+                .into(),
+        ));
+    };
     let sql = match status_filter {
         Some(_) => {
             "SELECT id, write_decision_id, reason, status, created_at FROM review_queue \
@@ -61,7 +66,12 @@ pub fn list(store: &Store, status_filter: Option<&str>) -> Result<Vec<ReviewQueu
 /// Resolve a pending review entry (T017). Returns Err(NotPending) if it was
 /// already resolved.
 pub fn resolve(store: &Store, review_id: i64, decision: Decision) -> Result<()> {
-    let Backend::Sqlite(conn) = &store.backend;
+    let Backend::Sqlite(conn) = &store.backend else {
+        return Err(Error::Validation(
+            "review::resolve requires the sqlite backend (postgres-backend not yet supported here)"
+                .into(),
+        ));
+    };
     let status: String = conn
         .query_row(
             "SELECT status FROM review_queue WHERE id = ?1",
@@ -95,7 +105,12 @@ pub fn list_enriched(
 ) -> Result<Vec<EnrichedReviewRow>> {
     let status = status_filter.unwrap_or("pending");
     let mut out = Vec::new();
-    let Backend::Sqlite(conn) = &store.backend;
+    let Backend::Sqlite(conn) = &store.backend else {
+        return Err(Error::Validation(
+            "review::list_enriched requires the sqlite backend (postgres-backend not yet supported here)"
+                .into(),
+        ));
+    };
     // LEFT JOINs: a review item may have no summary (single-item low-confidence) → NULL source_count.
     // T027: also SELECT cluster_id via a second LEFT JOIN on cluster_members (cm2).
     let sql = "
@@ -157,14 +172,20 @@ fn resolve_cluster_items(store: &Store, cluster_id: &str, decision: Decision) ->
     // the same summary_item_id) produces exactly 1 review_id per unique review_queue row,
     // not N. Without DISTINCT the JOIN multiplies rows by cluster size, causing N-1 spurious
     // NotPending errors that abort the entire approve/skip operation.
-    let Backend::Sqlite(conn) = &store.backend;
+    let Backend::Sqlite(conn) = &store.backend else {
+        return Err(Error::Validation(
+            "review::resolve_cluster_items requires the sqlite backend (postgres-backend not yet supported here)"
+                .into(),
+        ));
+    };
     let sql = "SELECT DISTINCT rq.id FROM review_queue rq
          JOIN write_decisions wd ON wd.id = rq.write_decision_id
          JOIN cluster_members cm ON cm.summary_item_id = wd.resulting_item_id
          WHERE cm.cluster_id = ?1 AND rq.status = 'pending'";
     let mut stmt = conn.prepare(sql)?;
-    let ids: rusqlite::Result<Vec<i64>> =
-        stmt.query_map(params![cluster_id], |row| row.get(0))?.collect();
+    let ids: rusqlite::Result<Vec<i64>> = stmt
+        .query_map(params![cluster_id], |row| row.get(0))?
+        .collect();
     let review_ids = ids?;
     for id in &review_ids {
         resolve(store, *id, decision.clone())?;
@@ -192,13 +213,17 @@ mod tests {
         let approved = approve_cluster(&store, cluster_id).expect("approve_cluster failed");
         assert_eq!(approved, 1, "expected 1 item approved");
 
-        let Backend::Sqlite(conn) = &store.backend;
-        let status: String = conn.query_row(
-            "SELECT status FROM review_queue WHERE write_decision_id = \
+        let Backend::Sqlite(conn) = &store.backend else {
+            panic!("review tests always use an in-memory sqlite store");
+        };
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM review_queue WHERE write_decision_id = \
              (SELECT wd.id FROM write_decisions wd WHERE wd.resulting_item_id = ?1)",
-            params![item_id],
-            |r| r.get(0),
-        ).unwrap();
+                params![item_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(status, "resolved_store");
     }
 
@@ -213,13 +238,17 @@ mod tests {
         let skipped = skip_cluster(&store, cluster_id).expect("skip_cluster failed");
         assert_eq!(skipped, 1);
 
-        let Backend::Sqlite(conn) = &store.backend;
-        let status: String = conn.query_row(
-            "SELECT status FROM review_queue WHERE write_decision_id = \
+        let Backend::Sqlite(conn) = &store.backend else {
+            panic!("review tests always use an in-memory sqlite store");
+        };
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM review_queue WHERE write_decision_id = \
              (SELECT wd.id FROM write_decisions wd WHERE wd.resulting_item_id = ?1)",
-            params![item_id],
-            |r| r.get(0),
-        ).unwrap();
+                params![item_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(status, "resolved_skip");
     }
 
@@ -232,14 +261,17 @@ mod tests {
         cm_id: &str,
         source_item_id: &str,
     ) {
-        let Backend::Sqlite(conn) = &store.backend;
+        let Backend::Sqlite(conn) = &store.backend else {
+            panic!("review tests always use an in-memory sqlite store");
+        };
 
         // 1. Insert a provenance event (required FK on memory_items and write_decisions).
         conn.execute(
             "INSERT INTO events (occurred_at, event_type, payload_json, schema_version) \
              VALUES (datetime('now'), 'write_decision', '{}', 1)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let event_id: i64 = conn.last_insert_rowid();
 
         // 2. Insert the summary memory_item.
@@ -248,7 +280,8 @@ mod tests {
              provenance_event_id, created_at, use_count) \
              VALUES (?1, 'summary text', 'summary', NULL, 1.0, ?2, datetime('now'), 0)",
             params![item_id, event_id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // 3. Insert the write_decision pointing at this item.
         conn.execute(
@@ -264,21 +297,24 @@ mod tests {
             "INSERT INTO events (occurred_at, event_type, payload_json, schema_version) \
              VALUES (datetime('now'), 'write_decision', '{}', 1)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let src_event_id: i64 = conn.last_insert_rowid();
         conn.execute(
             "INSERT INTO memory_items (id, content, item_type, embedding_json, confidence, \
              provenance_event_id, created_at, use_count) \
              VALUES (?1, 'source text', 'fact', NULL, 1.0, ?2, datetime('now'), 0)",
             params![source_item_id, src_event_id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // 5. Seed a consolidation_run (required FK from cluster_members.consolidation_run_id).
         conn.execute(
             "INSERT INTO consolidation_runs (id, started_at, status) \
              VALUES ('run-001', datetime('now'), 'completed')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         // 6. Insert cluster_member row.
         conn.execute(
@@ -286,14 +322,16 @@ mod tests {
              consolidation_run_id, created_at) \
              VALUES (?1, ?2, ?3, ?4, 'run-001', datetime('now'))",
             params![cm_id, cluster_id, item_id, source_item_id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // 7. Insert the review_queue row.
         conn.execute(
             "INSERT INTO review_queue (write_decision_id, reason, status, created_at) \
              VALUES (?1, 'consolidation_cluster_promotion', 'pending', datetime('now'))",
             params![wd_id],
-        ).unwrap();
+        )
+        .unwrap();
 
         // suppress unused var warning for interaction_id (kept in signature for readability)
         let _ = interaction_id;

@@ -1,3 +1,4 @@
+pub mod migrations;
 #[cfg(feature = "postgres-backend")]
 pub mod postgres_pool;
 pub mod schema;

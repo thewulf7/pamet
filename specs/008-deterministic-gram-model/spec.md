@@ -4,7 +4,50 @@
 
 **Created**: 2026-11-26
 
-**Status**: Draft
+**Status**: Implemented (27/27 tasks, both backends verified)
+
+## Results (post-implementation, real verification)
+
+- All 3 user stories (US1 build-at-consolidation, US2 generate, US3 inspect/replay)
+  implemented, tested, and verified against both SQLite and Postgres backends.
+- Unit tests (`tests/unit/test_gram_model.rs`): `build_for_cluster` stats, too-small
+  returns `None`, `generate` determinism with a fixed seed, zero out-of-vocabulary
+  tokens, early stop on sparse models — plus a direct internal PRNG test suite
+  (`SplitMix64`) inside `gram.rs` itself.
+- Integration test (`tests/integration/test_gram_replay.rs`): replayed
+  `cluster_gram_models` rows are byte-for-byte identical to the source on both
+  backends (FR-008/SC-004, Constitution Principle I) — verified against a synthetic
+  fixture AND a real consolidated copy of this project's own live Hermes memory
+  store.
+- CLI (`pamet gram generate`/`pamet gram show`): end-to-end quickstart scenarios 1-5
+  run for real against a live SQLite store; byte-identical output confirmed for a
+  fixed `--rng-seed`; missing-model case fails clearly (non-zero exit, explicit
+  error), not silently.
+- Scenario 7 (undersized cluster) could not be reproduced end-to-end through the
+  live CLI's actual write-policy/clustering mechanics (identical short text merges
+  at write time before ever reaching clustering; dissimilar short text essentially
+  never lands in the ambiguous clustering band with this project's hashed
+  embedder) — the guarantee is instead verified directly and reliably by the unit
+  test `build_for_cluster_too_small_returns_none`. `quickstart.md` documents this.
+- **Real bug found and fixed during implementation**: `events.event_type`'s `CHECK`
+  constraint is baked in at table-creation time; any Pamet database that predates
+  this feature (including, at discovery time, this project's own live
+  `~/.hermes/pamet/memory.db`) rejected the new `cluster_gram_model_built` event
+  type outright the first time consolidation tried to persist a gram model. Fixed
+  with an idempotent migration (`src/storage/migrations.rs`) run on every
+  `Store::open()` — SQLite via a `writable_schema`/`sqlite_master` rewrite plus a
+  `PRAGMA schema_version` bump (a few milliseconds, verified against a real copy of
+  the live 61,908-event store — an earlier rename/recreate/copy/drop version of
+  this migration was measured to take minutes against that same real data due to a
+  rusqlite-bundled-SQLite-version-specific `DROP TABLE` slowdown, not a logic bug);
+  Postgres via a direct `ALTER TABLE ... DROP/ADD CONSTRAINT`.
+- **Separate regression found and fixed**: the unrelated v0.6.0 release
+  (`src/services/review.rs`) left 7 non-exhaustive `let Backend::Sqlite(conn) =
+  &store.backend;` bindings that only compile when the `postgres-backend` feature
+  is off, breaking that feature's build entirely. Fixed with explicit
+  `else { return Err(...) }` (production code) / `else { panic!(...) }` (test-only
+  code) matching the file's documented "SQLite-only" intent — `cargo build
+  --features postgres-backend` and the full test suite (incl. Postgres) are green.
 
 **Input**: User description: "Deterministic n-gram model synthesized per consolidated
 memory cluster: build a frozen, non-ML Markov/n-gram language model from each

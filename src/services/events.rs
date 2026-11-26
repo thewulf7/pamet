@@ -15,7 +15,7 @@ pub struct Event {
     pub schema_version: i64,
 }
 
-const VALID_EVENT_TYPES: [&str; 12] = [
+const VALID_EVENT_TYPES: [&str; 13] = [
     "write_decision",
     "retrieval",
     "outcome_update",
@@ -28,6 +28,7 @@ const VALID_EVENT_TYPES: [&str; 12] = [
     "eval_run_completed",
     "item_decayed",
     "hindsight_memory_migrated",
+    "cluster_gram_model_built",
 ];
 
 /// Append one event to the log. Fails closed on an unknown event_type or

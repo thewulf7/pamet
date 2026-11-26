@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS events (
                       ('write_decision','retrieval','outcome_update','review_resolution','tombstone',
                        'cluster_formed','summary_created','consolidation_run_started',
                        'consolidation_run_finished','eval_run_completed','item_decayed',
-                       'hindsight_memory_migrated')),
+                       'hindsight_memory_migrated','cluster_gram_model_built')),
     payload_json  TEXT    NOT NULL,
     schema_version INTEGER NOT NULL DEFAULT 1
 );
@@ -100,6 +100,17 @@ CREATE TABLE IF NOT EXISTS cluster_members (
 -- list_enriched() which aggregates cluster_members per summary_item_id on every review list call.
 CREATE INDEX IF NOT EXISTS cluster_members_summary_item_id_idx ON cluster_members(summary_item_id);
 
+-- Feature 008: deterministic per-cluster n-gram model (data-model.md).
+CREATE TABLE IF NOT EXISTS cluster_gram_models (
+    cluster_id              TEXT PRIMARY KEY,
+    consolidation_run_id   TEXT NOT NULL REFERENCES consolidation_runs(id),
+    gram_order              INTEGER NOT NULL,
+    vocab_size              INTEGER NOT NULL,
+    training_token_count   INTEGER NOT NULL,
+    table_json              TEXT NOT NULL,
+    created_at              TEXT NOT NULL
+);
+
 -- Phase 2: eval harness (data-model.md).
 CREATE TABLE IF NOT EXISTS eval_results (
     id                  TEXT PRIMARY KEY,
@@ -144,7 +155,7 @@ CREATE TABLE IF NOT EXISTS events (
                       ('write_decision','retrieval','outcome_update','review_resolution','tombstone',
                        'cluster_formed','summary_created','consolidation_run_started',
                        'consolidation_run_finished','eval_run_completed','item_decayed',
-                       'hindsight_memory_migrated')),
+                       'hindsight_memory_migrated','cluster_gram_model_built')),
     payload_json  TEXT    NOT NULL,
     schema_version INTEGER NOT NULL DEFAULT 1
 );
@@ -227,6 +238,17 @@ CREATE TABLE IF NOT EXISTS cluster_members (
     source_item_id          TEXT NOT NULL REFERENCES memory_items(id),
     consolidation_run_id   TEXT NOT NULL REFERENCES consolidation_runs(id),
     created_at             TEXT NOT NULL
+);
+
+-- Feature 008: deterministic per-cluster n-gram model (data-model.md).
+CREATE TABLE IF NOT EXISTS cluster_gram_models (
+    cluster_id              TEXT PRIMARY KEY,
+    consolidation_run_id   TEXT NOT NULL REFERENCES consolidation_runs(id),
+    gram_order              INTEGER NOT NULL,
+    vocab_size              INTEGER NOT NULL,
+    training_token_count   INTEGER NOT NULL,
+    table_json              TEXT NOT NULL,
+    created_at              TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS eval_results (

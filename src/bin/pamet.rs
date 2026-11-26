@@ -93,6 +93,31 @@ enum Command {
         #[arg(long)]
         report_out: Option<String>,
     },
+    /// Feature 008: deterministic per-cluster n-gram model — generate or
+    /// inspect (contracts/cli-contract.md).
+    Gram {
+        #[command(subcommand)]
+        action: GramAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum GramAction {
+    /// Sample a persisted cluster's model (US2). `--rng-seed` omitted ⇒
+    /// output is valid but not reproducible run-to-run.
+    Generate {
+        #[arg(long)]
+        cluster_id: String,
+        #[arg(long)]
+        rng_seed: Option<u64>,
+        #[arg(long)]
+        max_tokens: Option<usize>,
+    },
+    /// Report a persisted cluster's model stats without generating (US3).
+    Show {
+        #[arg(long)]
+        cluster_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -230,13 +255,19 @@ fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
                     limit,
                 )?;
                 for r in rows {
-                    let summary = r.summary_text
+                    let summary = r
+                        .summary_text
                         .map(|t| {
                             let truncated = t.chars().take(80).collect::<String>();
-                            if t.len() > 80 { format!("{}…", truncated) } else { truncated }
+                            if t.len() > 80 {
+                                format!("{}…", truncated)
+                            } else {
+                                truncated
+                            }
                         })
                         .unwrap_or_else(|| "(no summary)".to_string());
-                    let cluster = r.cluster_id
+                    let cluster = r
+                        .cluster_id
                         .map(|c| format!(" cluster_id={c}"))
                         .unwrap_or_default();
                     println!(
@@ -283,15 +314,37 @@ fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
         Command::Consolidate {} => {
             let summary = pamet::consolidate(store)?;
             println!(
-                "consolidation_run={} items={} clusters={} contradictions={} decayed={}",
+                "consolidation_run={} items={} clusters={} contradictions={} decayed={} grams_skipped_too_small={}",
                 summary.run_id,
                 summary.items_processed,
                 summary.clusters_formed,
                 summary.contradictions_flagged,
-                summary.items_decayed
+                summary.items_decayed,
+                summary.grams_skipped_too_small
             );
             Ok(ExitCode::SUCCESS)
         }
+        Command::Gram { action } => match action {
+            GramAction::Generate {
+                cluster_id,
+                rng_seed,
+                max_tokens,
+            } => {
+                let model = pamet::services::gram::load(store, &cluster_id)?
+                    .ok_or_else(|| pamet::services::gram::no_model_error(&cluster_id))?;
+                println!(
+                    "{}",
+                    pamet::services::gram::generate(&model, rng_seed, max_tokens)
+                );
+                Ok(ExitCode::SUCCESS)
+            }
+            GramAction::Show { cluster_id } => {
+                let model = pamet::services::gram::load(store, &cluster_id)?
+                    .ok_or_else(|| pamet::services::gram::no_model_error(&cluster_id))?;
+                println!("{}", pamet::services::gram::describe(&model));
+                Ok(ExitCode::SUCCESS)
+            }
+        },
         Command::Eval {
             fixtures,
             with_hindsight,

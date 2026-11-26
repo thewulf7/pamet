@@ -223,6 +223,8 @@ mod tests {
 
     #[test]
     fn substantive_content_not_low_value() {
-        assert!(!is_low_value("Sylvie is the recruiter for requisition 456236"));
+        assert!(!is_low_value(
+            "Sylvie is the recruiter for requisition 456236"
+        ));
     }
 }

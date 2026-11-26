@@ -117,3 +117,11 @@ required-features = ["postgres-backend"]
 [[test]]
 name = "integration_write_policy_scale"
 path = "tests/integration/test_write_policy_scale.rs"
+
+[[test]]
+name = "unit_gram_model"
+path = "tests/unit/test_gram_model.rs"
+
+[[test]]
+name = "integration_gram_replay"
+path = "tests/integration/test_gram_replay.rs"

@@ -103,15 +103,14 @@ replay-equivalence in feature 003.
 
 ## Scenario 7 — Edge case: cluster too small for a meaningful model
 
-```sh
-DB2=/tmp/pamet_gram_tiny.db
-rm -f "$DB2"
-target/release/pamet --db "$DB2" remember --text "x y" --explicit-remember
-target/release/pamet --db "$DB2" remember --text "x y" --explicit-remember
-target/release/pamet --db "$DB2" consolidate
-
-sqlite3 "$DB2" "SELECT count(*) FROM cluster_gram_models;"
-```
-
-**Expected**: `0` — a cluster whose combined token count is below `gram_order` (3)
-never gets a gram model, and consolidation does not error (FR-003/Edge Case).
+**Note (discovered during implementation)**: reproducing this end-to-end through the
+live CLI is impractical given this project's actual write-policy/clustering
+mechanics — two identical short texts merge at write time (never reach clustering as
+separate items), and two different short texts rarely land in the ambiguous
+clustering band with the frozen hashed-bag-of-words embedder (they'd need a token
+hash collision). The real guarantee — `build_for_cluster` never produces a
+degenerate model — is verified directly and reliably by the unit test
+`build_for_cluster_too_small_returns_none` in `tests/unit/test_gram_model.rs`,
+which constructs the under-threshold input directly rather than depending on
+write-policy/clustering internals to happen to produce one. That unit test is the
+authoritative verification for this edge case; no CLI reproduction is included here.
