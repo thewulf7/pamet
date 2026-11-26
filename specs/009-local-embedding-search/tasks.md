@@ -21,14 +21,23 @@ to enable independent implementation and testing of each story.
 **Purpose**: Dependency changes shared by every story — isolated and
 regression-tested on their own before any feature code touches them.
 
-- [ ] T001 Add `sqlite-vec`, `ort`, `tokenizers` to `Cargo.toml`; bump the pinned
+- [X] T001 Add `sqlite-vec`, `ort`, `tokenizers` to `Cargo.toml`; bump the pinned
   `rusqlite` version to one where `auto_extension`/`loadable_extension` is stable
   (research.md Decision 1) — exact version chosen by actually trying it, not
-  guessed.
-- [ ] T002 Full regression sweep (`cargo build`, `cargo test --release`) on the
+  guessed. **Resolved: rusqlite 0.32, WITHOUT the `loadable_extension` feature**
+  — enabling it breaks ordinary `Connection::open` in the same binary (confirmed
+  real regression in T002); `auto_extension`/`register_auto_extension` compile
+  and work fine without it (confirmed via a standalone probe).
+- [X] T002 Full regression sweep (`cargo build`, `cargo test --release`) on the
   `rusqlite` version bump **alone**, before any new feature code is added —
-  isolates dependency-upgrade risk from this feature's own risk (plan.md
-  explicitly flags this as a whole-crate concern, not scoped to this feature).
+  isolates dependency-upgrade risk from this feature's own risk. **Caught a
+  real regression**: enabling rusqlite's `loadable_extension` feature (which
+  docs.rs's gating note on `auto_extension` suggested was needed) breaks
+  `cargo test` with `SQLite API not initialized or SQLite feature omitted` —
+  confirmed via rusqlite maintainer @gwenn (GitHub issue #1693): that feature
+  is for building a `.so` loadable extension, the opposite direction; the fix
+  is `auto_extension` WITHOUT `loadable_extension`. Full suite green after the
+  fix (0 failures, rusqlite 0.32.1 in Cargo.lock).
 
 **Checkpoint**: Dependencies in place and proven not to regress anything that
 already exists.
