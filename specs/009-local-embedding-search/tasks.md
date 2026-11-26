@@ -264,3 +264,55 @@ against real data.
    (see the Dependencies note above on why this ordering is more meaningful
    than running US2 before US3).
 5. Polish → full regression, docs, live rollout.
+
+---
+
+## Phase 7: Convergence
+
+Appended by `/speckit-converge` — assessed against spec.md/plan.md/tasks.md as
+of the current codebase state. Ordered CRITICAL/HIGH first.
+
+- [ ] T029 Call `register_sqlite_vec_once()` before `Connection::open()` in
+  `Store::open()` and `Store::open_in_memory()` (not inside `init_sqlite`,
+  which only ever sees an already-opened connection — SQLite's auto-extension
+  hook only applies to connections opened *after* registration) in
+  `src/storage/store.rs` per T005 (CRITICAL — contradicts: `Store::open()`
+  currently fails unconditionally with `no such module: vec0`, confirmed via
+  a live probe and the full test suite currently failing on the working tree).
+- [ ] T030 Add `embedding_backfilled` to `migrations.rs`'s
+  `NEW_EVENTS_TABLE_SQL` and its staleness check (`sql.contains(...)`) per T004
+  (missing — reproduces feature 008's own discovered bug class for this
+  feature's new event type).
+- [ ] T031 Add an idempotent `ALTER TABLE memory_items ADD COLUMN
+  embedding_model_id` migration (guarded by a `PRAGMA table_info` existence
+  check) in `src/storage/migrations.rs` per T003/data-model.md (missing — the
+  inline `CREATE TABLE IF NOT EXISTS` only covers brand-new databases).
+- [ ] T032 Replace `src/services/embedding.rs`'s hashed bag-of-words `embed()`
+  with the real frozen ort/ONNX MiniLM embedder per T006/research.md Decisions
+  2-3 (missing).
+- [ ] T033 Implement `pamet embedding fetch-model` in `src/bin/pamet.rs` per
+  T007/contracts/cli-contract.md (missing).
+- [ ] T034 Rewrite `src/services/retrieval_vector.rs` to query
+  `memory_items_vec` via `sqlite-vec` KNN instead of the brute-force
+  `embedding_json` scan per T009/FR-003/US2 (missing).
+- [ ] T035 Update `src/services/write_policy.rs`'s candidate scoring to the
+  new real embedder per T010/FR-001 (missing — depends on T032).
+- [ ] T036 Wire `src/lib.rs`'s `remember()` to write a `memory_items_vec` row +
+  `embedding_model_id` on every new write per T011/data-model.md (missing).
+- [ ] T037 Implement User Story 3 (P3) in full — `src/services/
+  embedding_backfill.rs`, the `pamet embedding backfill` CLI subcommand, and
+  `rebuild.rs`'s `embedding_backfilled` replay handler — per T017-T021
+  (missing — US3 is entirely unimplemented).
+- [ ] T038 Write the feature's test suite (`tests/unit/test_embedding.rs`,
+  `tests/integration/test_vector_search.rs`,
+  `tests/integration/test_embedding_backfill.rs`) and run the real SC-001/
+  SC-002 measurements per T008/T012-T016/T022 (missing — no new tests exist
+  yet for this feature).
+- [ ] T039 Confirm `ort`/`tokenizers`/`zerocopy`'s pinned versions in
+  `Cargo.toml` actually fit the real embedding code once T032 lands; adjust if
+  the API doesn't match what was guessed at dependency-add time (partial —
+  these versions got a clean `cargo build` but are unexercised by any real
+  embedding code yet).
+- [ ] T040 Confirm `zerocopy` is actually required by `ort`'s tensor/IoBinding
+  handling once T032 lands, or remove it from `Cargo.toml` — it was added
+  without a research.md decision or tasks.md task justifying it (unrequested).
