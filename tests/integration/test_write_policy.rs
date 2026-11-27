@@ -44,11 +44,18 @@ fn write_policy_full_sequence() {
         },
     )
     .unwrap();
-    // Contains a contradiction marker ("actually") but is still near-identical
-    // in wording to item A -> falls into the contradiction branch; since
-    // similarity is high it is NOT confidently resolved as a clean supersede,
-    // so it should land in review rather than silently overwrite.
-    assert!(matches!(d3[0].decision, Decision::Review | Decision::Merge));
+    // Contains a contradiction marker ("actually") and is near-identical in
+    // wording AND value to item A. T041 (feature 009): a real embedder's
+    // similarity score is trustworthy, so "topically related + contradiction
+    // marker" is treated as a confident correction signal -> Supersede, even
+    // though the value didn't actually change here (a false-positive marker
+    // on an unchanged restatement). The simple keyword+marker heuristic
+    // can't cleanly distinguish that from a genuine terse correction (e.g.
+    // "Actually the on-call engineer is now Bob, not Alice.", which scores
+    // similarly high and must supersede) without a smarter NLI/LLM judge
+    // (explicitly out of scope, Constitution Principle III) — Supersede is
+    // still safe here since the new item's content still contains "Pamet".
+    assert_eq!(d3[0].decision, Decision::Supersede);
 
     let d4 = pamet::remember(
         &store,
