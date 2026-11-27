@@ -166,15 +166,20 @@ fn prefilter_never_misses_a_true_near_duplicate() {
 }
 
 /// T019/FR-003/US2-AC2/Edge Case: a true contradiction-band pair (shared
-/// tokens + a contradiction marker, scoring below
-/// `CONTRADICTION_SIMILARITY_FLOOR`) must still be caught after
+/// tokens + a contradiction marker) must still be caught after
 /// pre-filtering — the merge band alone (covered above) does not exercise
 /// `detect_contradiction`'s own candidate lookup, which is a materially
 /// different code path (`Decision::Supersede`/`Decision::Review`, not
 /// `Decision::Merge`). Text pair's contradiction classification was
 /// verified empirically against the real tokenizer before being hardcoded
 /// here (same approach `tests/integration/test_consolidation.rs` already
-/// uses for its own contradiction fixture).
+/// uses for its own contradiction fixture). The assertion below accepts
+/// either `Supersede` or `Review` precisely so it doesn't encode which side
+/// of `CONTRADICTION_SIMILARITY_FLOOR` the real measured similarity lands
+/// on (T041 flipped that polarity and lowered the value; real measured sim
+/// for this pair ≈ 0.651, which is now the confident-`Supersede` side, not
+/// `Review` — but this test only needs "caught as a contradiction," not a
+/// specific resolution).
 #[test]
 fn prefilter_never_misses_a_true_contradiction() {
     let _guard = lock_db();

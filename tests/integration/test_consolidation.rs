@@ -235,14 +235,17 @@ fn confirmed_summary_replaces_originals_in_recall_sc005() {
 /// Wording verified against the real `embed()`/`cosine_similarity()` (T006's
 /// real ONNX MiniLM embedder, not the old hashed-BoW placeholder) to land
 /// in `write_policy`'s contradiction-eligible band (CONTRADICTION_SIMILARITY_FLOOR
-/// 0.35 <= sim < LOW_CONFIDENCE_THRESHOLD 0.5, so they are NOT also clustered
-/// by `cluster_items()`, which only unions pairs >= 0.5): real measured
-/// sim ≈ 0.449, 2 shared tokens ("owns"/"work" — meets `detect_contradiction`'s
-/// `shared >= 2`), candidate B contains contradiction markers ("actually"/"now").
+/// 0.30 <= sim < LOW_CONFIDENCE_THRESHOLD 0.5 — T041 lowered the floor from
+/// 0.35 to 0.30, see write_policy.rs's doc comment on the constant — so they
+/// are NOT also clustered by `cluster_items()`, which only unions pairs
+/// >= 0.5): real measured sim ≈ 0.449, 2 shared tokens ("owns"/"work" —
+/// meets `detect_contradiction`'s `shared >= 2`), candidate B contains
+/// contradiction markers ("actually"/"now").
 #[test]
 fn contradicting_facts_are_flagged_for_review_not_auto_resolved_t048() {
     use pamet::services::embedding;
     use pamet::services::events;
+    use pamet::services::write_policy;
 
     const FACT_A: &str = "jordan owns the payments integration work";
     const FACT_B: &str = "actually someone else now owns that work";
@@ -256,8 +259,11 @@ fn contradicting_facts_are_flagged_for_review_not_auto_resolved_t048() {
         &embedding::embed(FACT_B).unwrap(),
     );
     assert!(
-        (0.35..0.5).contains(&sim),
-        "fixture wording must land in [0.35, 0.5), got {sim}"
+        sim >= write_policy::CONTRADICTION_SIMILARITY_FLOOR
+            && sim < write_policy::LOW_CONFIDENCE_THRESHOLD,
+        "fixture wording must land in [{}, {}), got {sim}",
+        write_policy::CONTRADICTION_SIMILARITY_FLOOR,
+        write_policy::LOW_CONFIDENCE_THRESHOLD
     );
 
     for (id, text) in [("item-a", FACT_A), ("item-b", FACT_B)] {
