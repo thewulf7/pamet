@@ -404,8 +404,8 @@ of the current codebase state. Ordered CRITICAL/HIGH first.
   **Removed — not needed. Also added `ndarray` (confirmed required by the
   real `ort` sentence-embedding usage pattern) and `sha2` (needed for
   `fetch-model`'s real checksum verification, T007).**
-- [ ] T041 **New, surfaced by T013's real before/after eval measurement —
-  not yet started.** `write_policy::LOW_CONFIDENCE_THRESHOLD` (0.5) and
+- [X] T041 **New, surfaced by T013's real before/after eval measurement —
+  now resolved, see below.** `write_policy::LOW_CONFIDENCE_THRESHOLD` (0.5) and
   `MERGE_SIMILARITY_THRESHOLD` (0.85) were tuned against the old hashed-BoW
   embedder's similarity distribution (feature 005). The real MiniLM
   embedder's distribution is different enough that it caused a genuine
@@ -425,3 +425,44 @@ of the current codebase state. Ordered CRITICAL/HIGH first.
   "done" without resolving T041** — SC-001 claims real embedding improves
   recall, and as currently tuned it demonstrably regresses one whole probe
   category.
+  **RESOLVED.** Real measured similarities for 5 true-correction pairs
+  (3 verbose, 2 terse), 2 true-near-duplicate pairs (no contradiction
+  marker), and 3 true-distinct-topic pairs: distinct topics top out ~0.22;
+  genuine corrections score 0.33-0.93 depending on phrasing terseness. Root
+  cause confirmed: `CONTRADICTION_SIMILARITY_FLOOR`'s *polarity*
+  (`sim < floor` = confident supersede) was a compensating hack for the old
+  hashed-BoW embedder's unreliable scores — a real embedder's score is
+  trustworthy, so "topically related (sim >= floor) + contradiction marker"
+  is the actual confident-supersede signal. **Fixed**: flipped the
+  comparison in `write_policy::evaluate()` and lowered the constant's value
+  from 0.35 to 0.30 (with margin above the measured distinct-topic ceiling
+  and below the lowest measured genuine-correction score) —
+  `write_policy.rs`'s doc comment on the constant records the real measured
+  data this value is grounded in. **Re-ran the same before/after eval**:
+  `update_supersession` back to 3/3 (was 1/3), overall 11/12 — matching the
+  old embedder's baseline exactly, confirming the regression is resolved,
+  not just moved. Full `cargo test --release` re-run clean except one
+  pre-existing, now-more-exposed flake — see T042.
+  **`MERGE_SIMILARITY_THRESHOLD` (0.85) and `LOW_CONFIDENCE_THRESHOLD` (0.5)
+  were deliberately left untouched** — the same probe data shows genuine
+  near-duplicates (no contradiction marker) can score as low as 0.44,
+  meaning these two thresholds likely also need lowering for the real
+  embedder (a real, separate finding), but that recalibration has much
+  broader blast radius (every merge/near-dup decision system-wide, not just
+  the contradiction path) and needs its own dedicated empirical pass rather
+  than a second threshold change bundled into this one — tracked as a new
+  follow-up, not yet task-numbered.
+- [ ] T042 **New, surfaced while verifying T041 — not this feature's bug,
+  but exposed by this feature's change.** Feature 002's
+  `tests/e2e/test_consolidation_e2e.rs::concurrent_consolidation_does_not_measurably_slow_recall_sc001`
+  (T043/SC-001, 5% latency bound) is now measurably flaky — failed on 2 of
+  ~6 real runs in this session (once mid-full-suite, once in isolation with
+  `--test-threads=1`; passed cleanly on the other attempts). Root cause:
+  `embed()` went from a near-free hash function to ~86ms of real CPU-bound
+  ONNX inference (T006) — a 5% latency-bound test is far more exposed to
+  ordinary scheduling/CPU-contention noise once the thing it's timing is
+  CPU-bound real work instead of a hash. Not fixed here — belongs to
+  feature 002, which owns SC-001's definition, and loosening someone else's
+  already-shipped test bound without that feature's own review is exactly
+  the kind of drive-by change this project's conventions avoid. Flagged
+  here because feature 009 is the direct cause.

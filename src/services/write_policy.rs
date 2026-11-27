@@ -9,7 +9,24 @@ use serde_json::json;
 
 /// Fixed, documented thresholds (research.md "Write policy" decision).
 pub const MERGE_SIMILARITY_THRESHOLD: f32 = 0.85;
-pub const CONTRADICTION_SIMILARITY_FLOOR: f32 = 0.35;
+/// T041 (feature 009): **polarity flipped and value lowered** from the
+/// original 0.35/"confident supersede when BELOW this" design. That
+/// original polarity was a compensating hack for the old hashed-BoW
+/// embedder's unreliable similarity scores — low similarity + token-overlap
+/// + a contradiction marker was the diagnostic combination back then,
+/// because the embedder itself couldn't be trusted to say "same topic."
+/// A real sentence embedder *can* be trusted for that: once it says a
+/// candidate is topically related to the best match (sim above this floor)
+/// **and** `detect_contradiction()`'s keyword/marker heuristic also fires,
+/// that combination is the strong signal it's a genuine correction to the
+/// same fact — not an ambiguous case needing review. Real measured values
+/// (see tasks.md T041): genuinely distinct topics top out ~0.22; genuine
+/// corrections (same fact, new value, explicit marker) score 0.33-0.93
+/// depending on phrasing terseness. 0.30 sits with margin above the
+/// distinct-topic ceiling and below the lowest measured genuine-correction
+/// score, so `sim >= CONTRADICTION_SIMILARITY_FLOOR` (not `<`, see
+/// `evaluate()`) is now the confident-supersede test.
+pub const CONTRADICTION_SIMILARITY_FLOOR: f32 = 0.30;
 pub const LOW_CONFIDENCE_THRESHOLD: f32 = 0.5;
 
 pub struct Candidate {
@@ -60,7 +77,12 @@ pub fn evaluate(store: &Store, candidate: &Candidate) -> Result<PolicyOutcome> {
     // Rule order mirrors spec FR-002..FR-004 / Acceptance Scenarios 1-5.
     if contradicts {
         if let Some((sim, item)) = &best_match {
-            if *sim < CONTRADICTION_SIMILARITY_FLOOR {
+            // T041: flipped from `*sim < CONTRADICTION_SIMILARITY_FLOOR` —
+            // a real embedder's similarity score is trustworthy, so
+            // "topically related (sim >= floor) + explicit contradiction
+            // marker" is the confident-supersede signal, not the opposite.
+            // See CONTRADICTION_SIMILARITY_FLOOR's doc comment.
+            if *sim >= CONTRADICTION_SIMILARITY_FLOOR {
                 // Confidently contradicts an existing item -> supersede.
                 return Ok(PolicyOutcome {
                     decision: Decision::Supersede,
