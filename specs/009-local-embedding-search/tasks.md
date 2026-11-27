@@ -51,15 +51,19 @@ until this phase is done.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 `src/storage/schema.rs`: add the `memory_items_vec` `vec0` virtual
+- [X] T003 `src/storage/schema.rs`: add the `memory_items_vec` `vec0` virtual
   table, the `embedding_models` table, and the `embedding_model_id` column on
-  `memory_items` (data-model.md).
-- [ ] T004 `src/services/events.rs`: add `"embedding_backfilled"` to
-  `VALID_EVENT_TYPES`.
-- [ ] T005 `src/storage/store.rs`: register `sqlite-vec` via
+  `memory_items` (data-model.md). **Pre-existing-DB migration gap found by
+  `/speckit-converge` and fixed as T031.**
+- [X] T004 `src/services/events.rs`: add `"embedding_backfilled"` to
+  `VALID_EVENT_TYPES`. **Pre-existing-DB migration gap found by
+  `/speckit-converge` and fixed as T030.**
+- [X] T005 `src/storage/store.rs`: register `sqlite-vec` via
   `rusqlite::auto_extension::register_auto_extension` at connection-open time
   (research.md Decision 1's exact transmute pattern), so `vec0` is available on
-  every opened connection without a separate load step.
+  every opened connection without a separate load step. **Wiring bug (called
+  too late, inside `init_sqlite` instead of before `Connection::open`) found by
+  `/speckit-converge` and fixed as T029.**
 - [ ] T006 `src/services/embedding.rs`: replace the hashed bag-of-words `embed()`
   with an `ort`/ONNX + `tokenizers` implementation — same function signature
   (`embed(text: &str) -> Vec<f32>`), now returning the real 384-dim MiniLM
@@ -272,21 +276,27 @@ against real data.
 Appended by `/speckit-converge` — assessed against spec.md/plan.md/tasks.md as
 of the current codebase state. Ordered CRITICAL/HIGH first.
 
-- [ ] T029 Call `register_sqlite_vec_once()` before `Connection::open()` in
+- [X] T029 Call `register_sqlite_vec_once()` before `Connection::open()` in
   `Store::open()` and `Store::open_in_memory()` (not inside `init_sqlite`,
   which only ever sees an already-opened connection — SQLite's auto-extension
   hook only applies to connections opened *after* registration) in
   `src/storage/store.rs` per T005 (CRITICAL — contradicts: `Store::open()`
   currently fails unconditionally with `no such module: vec0`, confirmed via
   a live probe and the full test suite currently failing on the working tree).
-- [ ] T030 Add `embedding_backfilled` to `migrations.rs`'s
+  **Fixed and verified**: live probe now returns `OPEN OK`, full regression
+  suite green on both SQLite and `postgres-backend`.
+- [X] T030 Add `embedding_backfilled` to `migrations.rs`'s
   `NEW_EVENTS_TABLE_SQL` and its staleness check (`sql.contains(...)`) per T004
   (missing — reproduces feature 008's own discovered bug class for this
-  feature's new event type).
-- [ ] T031 Add an idempotent `ALTER TABLE memory_items ADD COLUMN
+  feature's new event type). **Fixed in both the SQLite (`writable_schema`
+  rewrite) and Postgres (`ALTER TABLE ... CONSTRAINT`) variants.**
+- [X] T031 Add an idempotent `ALTER TABLE memory_items ADD COLUMN
   embedding_model_id` migration (guarded by a `PRAGMA table_info` existence
   check) in `src/storage/migrations.rs` per T003/data-model.md (missing — the
   inline `CREATE TABLE IF NOT EXISTS` only covers brand-new databases).
+  **Done for both SQLite (`pragma_table_info` probe) and Postgres (`ADD
+  COLUMN IF NOT EXISTS`, natively idempotent); verified idempotent via a
+  double-open probe against the same real file.**
 - [ ] T032 Replace `src/services/embedding.rs`'s hashed bag-of-words `embed()`
   with the real frozen ort/ONNX MiniLM embedder per T006/research.md Decisions
   2-3 (missing).

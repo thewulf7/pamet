@@ -11,6 +11,32 @@ use rusqlite::Connection;
 #[cfg(feature = "postgres-backend")]
 use super::postgres_pool::{self, PgPool};
 
+/// Registers `sqlite-vec`'s `vec0` virtual table type process-wide, exactly
+/// once, before the first `Connection::open` — `register_auto_extension` is a
+/// one-time C-library-level registration (SQLite's "auto extension" hook
+/// applies to every connection opened *after* registration, not per-connection),
+/// so calling it again on a later `Store::open()` in the same process would be
+/// redundant at best; `std::sync::Once` makes that explicit instead of relying
+/// on undocumented idempotence in the `sqlite-vec`/`rusqlite` FFI boundary.
+/// research.md Decision 1 — the exact transmute pattern rusqlite's own
+/// maintainer confirmed works (asg017/sqlite-vec#206), *without* rusqlite's
+/// `loadable_extension` feature (that feature is for the opposite direction —
+/// building a `.so` loadable extension — and breaks ordinary `Connection::open`
+/// in the same binary if enabled; see T001/T002's real regression).
+fn register_sqlite_vec_once() {
+    static REGISTERED: std::sync::Once = std::sync::Once::new();
+    REGISTERED.call_once(|| {
+        unsafe {
+            let raw_ext: rusqlite::auto_extension::RawAutoExtension =
+                std::mem::transmute(sqlite_vec::sqlite3_vec_init as usize);
+            rusqlite::auto_extension::register_auto_extension(raw_ext)
+                .expect("sqlite-vec auto_extension registration must succeed — a failure here \
+                         means every subsequent vector operation would silently have no vec0 \
+                         support, which is worse than failing loudly at startup");
+        }
+    });
+}
+
 pub enum Backend {
     Sqlite(Connection),
     #[cfg(feature = "postgres-backend")]
@@ -45,12 +71,14 @@ impl Store {
         if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
             return Self::open_postgres(db_url);
         }
+        register_sqlite_vec_once();
         let conn = Connection::open(db_url)?;
         Self::init_sqlite(conn)
     }
 
     /// In-memory SQLite store, for tests — unchanged.
     pub fn open_in_memory() -> Result<Self> {
+        register_sqlite_vec_once();
         let conn = Connection::open_in_memory()?;
         Self::init_sqlite(conn)
     }
@@ -59,6 +87,7 @@ impl Store {
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(super::schema::SQLITE_SCHEMA_SQL)?;
         super::migrations::ensure_events_check_constraint_current_sqlite(&conn)?;
+        super::migrations::ensure_memory_items_embedding_model_id_column_sqlite(&conn)?;
         Ok(Self {
             backend: Backend::Sqlite(conn),
         })
@@ -72,6 +101,7 @@ impl Store {
             conn.batch_execute(super::schema::POSTGRES_SCHEMA_SQL)?;
         }
         super::migrations::ensure_events_check_constraint_current_postgres(&pool)?;
+        super::migrations::ensure_memory_items_embedding_model_id_column_postgres(&pool)?;
         Ok(Self {
             backend: Backend::Postgres(pool),
         })

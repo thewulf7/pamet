@@ -44,7 +44,7 @@ pub fn ensure_events_check_constraint_current_sqlite(conn: &Connection) -> Resul
     let Some(sql) = sql else {
         return Ok(()); // events table doesn't exist yet — nothing to migrate.
     };
-    if sql.contains("cluster_gram_model_built") {
+    if sql.contains("embedding_backfilled") {
         return Ok(()); // already current.
     }
 
@@ -55,7 +55,7 @@ pub fn ensure_events_check_constraint_current_sqlite(conn: &Connection) -> Resul
                                ('write_decision','retrieval','outcome_update','review_resolution','tombstone',
                                 'cluster_formed','summary_created','consolidation_run_started',
                                 'consolidation_run_finished','eval_run_completed','item_decayed',
-                                'hindsight_memory_migrated','cluster_gram_model_built')),
+                                'hindsight_memory_migrated','cluster_gram_model_built','embedding_backfilled')),
              payload_json  TEXT    NOT NULL,
              schema_version INTEGER NOT NULL DEFAULT 1
          )";
@@ -84,6 +84,50 @@ pub fn ensure_events_check_constraint_current_sqlite(conn: &Connection) -> Resul
     Ok(())
 }
 
+/// Adds `memory_items.embedding_model_id` to databases created before
+/// feature 009 — same class of gap as the events `CHECK` constraint above:
+/// `CREATE TABLE IF NOT EXISTS` (schema.rs) only affects brand-new databases.
+/// `ALTER TABLE ... ADD COLUMN` has no `IF NOT EXISTS` form in SQLite, so the
+/// idempotence check is a `PRAGMA table_info` existence probe instead.
+pub fn ensure_memory_items_embedding_model_id_column_sqlite(conn: &Connection) -> Result<()> {
+    let has_table: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_items'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|_| true)
+        .unwrap_or(false);
+    if !has_table {
+        return Ok(()); // memory_items doesn't exist yet — nothing to migrate.
+    }
+    let already_present: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('memory_items') WHERE name = 'embedding_model_id'")?
+        .query_row([], |r| r.get::<_, i64>(0))
+        .map(|_| true)
+        .unwrap_or(false);
+    if already_present {
+        return Ok(()); // already current.
+    }
+    conn.execute_batch(
+        "ALTER TABLE memory_items ADD COLUMN embedding_model_id TEXT REFERENCES embedding_models(id);",
+    )?;
+    Ok(())
+}
+
+/// Postgres equivalent — `ADD COLUMN IF NOT EXISTS` makes this idempotent
+/// natively, no probe needed.
+#[cfg(feature = "postgres-backend")]
+pub fn ensure_memory_items_embedding_model_id_column_postgres(
+    pool: &crate::storage::postgres_pool::PgPool,
+) -> Result<()> {
+    let mut conn = pool.get()?;
+    conn.batch_execute(
+        "ALTER TABLE memory_items ADD COLUMN IF NOT EXISTS embedding_model_id TEXT;",
+    )?;
+    Ok(())
+}
+
 /// Postgres supports `ALTER TABLE ... DROP/ADD CONSTRAINT` directly, so no
 /// table rebuild is needed — just replace the constraint if it's stale.
 #[cfg(feature = "postgres-backend")]
@@ -94,7 +138,7 @@ pub fn ensure_events_check_constraint_current_postgres(
     let row = conn.query_opt(
         "SELECT 1 FROM information_schema.check_constraints \
          WHERE constraint_schema = current_schema() \
-           AND check_clause LIKE '%cluster_gram_model_built%'",
+           AND check_clause LIKE '%embedding_backfilled%'",
         &[],
     )?;
     if row.is_some() {
@@ -106,7 +150,7 @@ pub fn ensure_events_check_constraint_current_postgres(
              ('write_decision','retrieval','outcome_update','review_resolution','tombstone', \
               'cluster_formed','summary_created','consolidation_run_started', \
               'consolidation_run_finished','eval_run_completed','item_decayed', \
-              'hindsight_memory_migrated','cluster_gram_model_built'));",
+              'hindsight_memory_migrated','cluster_gram_model_built','embedding_backfilled'));",
     )?;
     Ok(())
 }

@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS events (
                       ('write_decision','retrieval','outcome_update','review_resolution','tombstone',
                        'cluster_formed','summary_created','consolidation_run_started',
                        'consolidation_run_finished','eval_run_completed','item_decayed',
-                       'hindsight_memory_migrated','cluster_gram_model_built')),
+                       'hindsight_memory_migrated','cluster_gram_model_built','embedding_backfilled')),
     payload_json  TEXT    NOT NULL,
     schema_version INTEGER NOT NULL DEFAULT 1
 );
@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS memory_items (
     item_type            TEXT NOT NULL CHECK (item_type IN ('episode','fact','preference','procedure','summary')),
     content              TEXT NOT NULL,
     embedding_json        TEXT,
+    embedding_model_id   TEXT REFERENCES embedding_models(id),
     entities_json        TEXT,
     confidence           REAL NOT NULL DEFAULT 1.0,
     provenance_event_id  INTEGER NOT NULL REFERENCES events(id),
@@ -31,6 +32,23 @@ CREATE TABLE IF NOT EXISTS memory_items (
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_items_fts USING fts5(
     id UNINDEXED,
     content
+);
+
+-- Feature 009: real semantic embedding (data-model.md). `embedding_models`
+-- tracks which frozen model/version produced which items' vectors (FR-009);
+-- `memory_items_vec` is a `vec0` virtual table (sqlite-vec) holding the real
+-- vector itself, keyed by `memory_items.id` — not FK-enforced via SQL (vec0
+-- virtual tables don't support ordinary FK constraints), enforced at the
+-- application layer like `cluster_members`'s references already are.
+CREATE TABLE IF NOT EXISTS embedding_models (
+    id              TEXT PRIMARY KEY,
+    dimension       INTEGER NOT NULL,
+    introduced_at   TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_items_vec USING vec0(
+    item_id TEXT PRIMARY KEY,
+    embedding FLOAT[384]
 );
 
 CREATE TABLE IF NOT EXISTS write_decisions (
