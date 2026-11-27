@@ -157,10 +157,30 @@ set and confirm a measurable improvement with no regressions.
 - [ ] T012 [US1] Integration test: a stored memory is found by a genuine
   paraphrase/synonym query but an unrelated memory is not ranked ahead of it,
   in `tests/integration/test_vector_search.rs` (depends on T009, T011).
-- [ ] T013 [US1] Run the project's existing eval harness (`pamet eval` /
+- [X] T013 [US1] Run the project's existing eval harness (`pamet eval` /
   `eval_harness.rs` probes) before and after this story's changes; record the
   real measured numbers in `spec.md`'s Results section for SC-001 — not
-  estimated.
+  estimated. **Real before/after measured via a git worktree at the pre-T006
+  commit (still has the old hashed-BoW embedder) vs. current HEAD, same
+  probe set (`tests/fixtures/eval_probes_v1.json`), both built `--release`:**
+  - Before (hashed-BoW): `forgetting_abstention` 2/3, `general_precision`
+    3/3, `new_fact_recall` 3/3, `update_supersession` 3/3 — **11/12 overall**.
+  - After (real MiniLM): `forgetting_abstention` 2/3, `general_precision`
+    3/3, `new_fact_recall` 3/3, `update_supersession` 1/3 — **9/12 overall**.
+  - **This is a real regression, not an improvement** — `update_supersession`
+    dropped from 3/3 to 1/3. Root cause confirmed (not guessed): the probe
+    set's "Correction: ..." sentences are deliberately long and verbose
+    (~40 words) vs. the ~5-word original fact they supersede. Real measured
+    cosine similarity for one such pair = 0.594 — inside
+    `write_policy::LOW_CONFIDENCE_THRESHOLD` (0.5) but below
+    `MERGE_SIMILARITY_THRESHOLD` (0.85), so the real embedder correctly
+    recognizes it as *related* but not similar enough to auto-supersede;
+    `write_policy.rs`'s own logic (`max_similarity >= LOW_CONFIDENCE_THRESHOLD`
+    → route to review, not auto-store/supersede) then sends the correction to
+    the **review queue** instead of applying it, so `recall()` still returns
+    the stale original fact. The old hashed-BoW embedder's cruder word-overlap
+    scoring happened to push this same pair above 0.85 (coincidental, not a
+    real signal) — see T041, a new task this finding surfaced.
 
 **Checkpoint**: User Story 1 fully functional and independently testable — new
 writes get real semantic recall.
@@ -384,3 +404,24 @@ of the current codebase state. Ordered CRITICAL/HIGH first.
   **Removed — not needed. Also added `ndarray` (confirmed required by the
   real `ort` sentence-embedding usage pattern) and `sha2` (needed for
   `fetch-model`'s real checksum verification, T007).**
+- [ ] T041 **New, surfaced by T013's real before/after eval measurement —
+  not yet started.** `write_policy::LOW_CONFIDENCE_THRESHOLD` (0.5) and
+  `MERGE_SIMILARITY_THRESHOLD` (0.85) were tuned against the old hashed-BoW
+  embedder's similarity distribution (feature 005). The real MiniLM
+  embedder's distribution is different enough that it caused a genuine
+  regression on `update_supersession` (3/3 → 1/3, T013) — a verbose
+  "Correction: ..." sentence scores real cosine similarity ~0.59 against the
+  short original fact it should supersede, landing it in the
+  review-gated zone instead of auto-superseding. Recalibrating these two
+  thresholds for the real embedder is real tuning work with real tradeoffs
+  (lowering them risks over-merging distinct facts elsewhere in the system)
+  and needs its own deliberate pass: (1) measure real similarity
+  distributions for a representative sample of true-duplicate,
+  true-correction, and true-distinct pairs under the real embedder: (2)
+  pick new thresholds from that real data, not guessed; (3) re-run the full
+  eval harness + full `cargo test --release` to confirm no other probe/test
+  regresses as a side effect; (4) update spec.md's Results section with the
+  final before/after numbers once this lands. **Do not ship this feature as
+  "done" without resolving T041** — SC-001 claims real embedding improves
+  recall, and as currently tuned it demonstrably regresses one whole probe
+  category.
