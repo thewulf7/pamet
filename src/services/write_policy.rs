@@ -33,7 +33,7 @@ pub struct PolicyOutcome {
 /// T014: core rule evaluation. T018: provenance/validation is enforced by
 /// the caller (`remember()` in lib.rs), which always supplies a real event id.
 pub fn evaluate(store: &Store, candidate: &Candidate) -> Result<PolicyOutcome> {
-    let embedding_vec = embedding::embed(&candidate.content);
+    let embedding_vec = embedding::embed(&candidate.content)?;
     let active_items = candidate_items(store, candidate)?;
 
     let mut best_match: Option<(f32, MemoryItem)> = None;

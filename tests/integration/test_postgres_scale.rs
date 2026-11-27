@@ -34,7 +34,7 @@ fn seed_items(url: &str, n: usize) {
     let provenance_event_id: i64 = event_row.get(0);
     for i in 0..n {
         let content = format!("bulk scale-test fact number {i} about topic {}", i % 97);
-        let embedding = pamet::services::embedding::embed(&content);
+        let embedding = pamet::services::embedding::embed(&content).unwrap();
         let vector = pgvector::Vector::from(embedding);
         let id = format!("scale-seed-{i}");
         txn.execute(

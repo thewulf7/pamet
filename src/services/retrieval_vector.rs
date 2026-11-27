@@ -1,38 +1,48 @@
-//! Vector similarity search over embeddings stored in `memory_items` (T023).
-//! Deviation note (see embedding.rs): SQLite computes cosine similarity in
-//! Rust over stored JSON float vectors (no `sqlite-vec` extension loaded);
-//! Postgres pushes the distance computation into SQL via pgvector's native
-//! `<=>` cosine-distance operator (FR-005) instead of pulling every row's
-//! full vector over the wire and scoring in Rust — the latter was the
-//! original T023 implementation and, measured against a real 10,000-item
-//! store, missed SC-003's <100ms target by ~5x (490ms), mostly from network
-//! transfer of ~40MB of embeddings per query, not from the scoring math
-//! itself.
+//! Vector similarity search over embeddings stored in `memory_items_vec`
+//! (T009/T034, feature 009). Replaces the SQLite brute-force full-table scan
+//! over JSON-blob embeddings (the original T023 implementation, which
+//! missed SC-003's <100ms target by ~5x against a real 10,000-item store)
+//! with `sqlite-vec`'s native `vec0` KNN query — the whole reason this
+//! feature adopted `sqlite-vec` (research.md Decision 1, plan.md). Postgres
+//! keeps its existing pgvector `<=>` path (FR-005) — no change there.
 
 use crate::error::Result;
 use crate::models::RankedCandidate;
 use crate::services::embedding;
 use crate::storage::{Backend, Store};
+use zerocopy::IntoBytes;
 
 /// Minimum cosine similarity to be considered a candidate at all (FR-008 —
 /// an irrelevant item must not be force-ranked just because it exists).
 const MIN_SIMILARITY: f32 = 0.15;
 
 pub fn search(store: &Store, query: &str, limit: usize) -> Result<Vec<RankedCandidate>> {
-    let query_vec = embedding::embed(query);
+    let query_vec = embedding::embed(query)?;
     let mut scored: Vec<(String, f32)> = Vec::new();
     match &store.backend {
         Backend::Sqlite(conn) => {
+            // `vec0`'s `distance_metric=cosine` (schema.rs) makes `MATCH`'s
+            // `distance` output a cosine *distance* (0 = identical, 2 = polar
+            // opposite) — similarity = 1 - distance, same convention the
+            // Postgres/pgvector branch below already uses for `<=>`.
+            // Over-fetch a wider k than `limit` so post-filtering on
+            // MIN_SIMILARITY and the `tombstoned_at IS NULL` join still
+            // leaves `limit` worth of real candidates, not fewer.
+            let k = (limit * 4).max(50);
             let mut stmt = conn.prepare(
-                "SELECT id, embedding_json FROM memory_items WHERE tombstoned_at IS NULL",
+                "SELECT m.id, 1.0 - v.distance AS similarity \
+                 FROM memory_items_vec v \
+                 JOIN memory_items m ON m.id = v.item_id \
+                 WHERE v.embedding MATCH ?1 AND k = ?2 AND m.tombstoned_at IS NULL \
+                 ORDER BY v.distance",
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            let query_bytes = query_vec.as_bytes();
+            let rows = stmt.query_map(rusqlite::params![query_bytes, k as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
             })?;
             for r in rows {
-                let (id, embedding_json) = r?;
-                let item_vec: Vec<f32> = serde_json::from_str(&embedding_json).unwrap_or_default();
-                let score = embedding::cosine_similarity(&query_vec, &item_vec);
+                let (id, similarity) = r?;
+                let score = similarity as f32;
                 if score >= MIN_SIMILARITY {
                     scored.push((id, score));
                 }

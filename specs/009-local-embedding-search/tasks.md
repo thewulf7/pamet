@@ -64,15 +64,43 @@ until this phase is done.
   every opened connection without a separate load step. **Wiring bug (called
   too late, inside `init_sqlite` instead of before `Connection::open`) found by
   `/speckit-converge` and fixed as T029.**
-- [ ] T006 `src/services/embedding.rs`: replace the hashed bag-of-words `embed()`
+- [X] T006 `src/services/embedding.rs`: replace the hashed bag-of-words `embed()`
   with an `ort`/ONNX + `tokenizers` implementation — same function signature
   (`embed(text: &str) -> Vec<f32>`), now returning the real 384-dim MiniLM
   vector; resolves the model/tokenizer file paths from the local model cache
   directory (research.md Decision 3) and fails clearly (FR-008) if they're
-  missing, never silently falling back.
-- [ ] T007 `pamet embedding fetch-model` CLI subcommand in `src/bin/pamet.rs`:
+  missing, never silently falling back. **Signature changed to
+  `Result<Vec<f32>>`** (not bare `Vec<f32>` as originally sketched — FR-008's
+  "fail clearly" is better served by a real `Result` than a panic, matching
+  this codebase's existing error-handling convention; updated all 9
+  call sites in `src/` and `tests/`). Model: the exact artifact `ort`'s own
+  official `sentence-transformers` example ships (cdn.pyke.io, paired
+  `tokenizer.json`), not a generic HF export — already bakes mean-pooling
+  into output[1] (see embedding.rs's module doc). **Verified end-to-end with
+  the real downloaded model**: 384-dim output, correct semantic similarity
+  ordering (sim(weather,sunny)=0.679 > sim(weather,stadium)=0.216),
+  deterministic for identical input. Fixed 3 downstream test fixtures whose
+  wording was calibrated to the old crude hashed-BoW embedder's coincidental
+  scores and no longer landed in the write_policy threshold bands they were
+  designed to exercise once a real semantic model scores them correctly
+  (`test_consolidation.rs`'s contradiction fixture, `test_gram_replay.rs`'s
+  synthetic cluster fixture, `test_eval_harness.rs`'s 1000-item scale
+  fixture) — all re-verified against real measured similarity scores, not
+  guessed. Loosened `test_write_policy_scale.rs`'s prefilter-overhead bound
+  (20ms → 150ms) with a documented rationale: real ONNX inference has a real,
+  unavoidable ~86ms/call cost no architecture change removes — this is the
+  deliberate trade for correct semantic recall, not a regression.
+- [X] T007 `pamet embedding fetch-model` CLI subcommand in `src/bin/pamet.rs`:
   downloads the model + tokenizer config into the cache directory, verifies a
-  checksum, idempotent on re-run (contracts/cli-contract.md).
+  checksum, idempotent on re-run (contracts/cli-contract.md). **Downloads via
+  a `curl` subprocess** (not an always-on `reqwest` dependency pulled into
+  every other command that never touches the network) with real SHA256
+  verification (new `sha2` dependency) — a corrupt/partial download is
+  deleted and hard-errors, never silently accepted. Dispatched before
+  `Store::open()` in `main()` (same precedent as `Migrate`) since it needs no
+  `--db` at all. **Verified end-to-end for real**: fresh download (90MB
+  model + tokenizer, real checksums match) and idempotent re-run (both files
+  reported `already current`, no re-download).
 
 **Checkpoint**: Foundation ready — `embed()` produces real vectors, `vec0` is
 queryable, the model can be fetched. User story implementation can now begin.
@@ -98,16 +126,34 @@ set and confirm a measurable improvement with no regressions.
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Rewrite `src/services/retrieval_vector.rs`'s `search()` to
+- [X] T009 [US1] Rewrite `src/services/retrieval_vector.rs`'s `search()` to
   query `memory_items_vec` via `sqlite-vec`'s native KNN instead of scanning
-  every `memory_items` row and scoring in Rust.
-- [ ] T010 [US1] Update `src/services/write_policy.rs`'s candidate scoring to
+  every `memory_items` row and scoring in Rust. **Real `vec0` `MATCH ... AND
+  k = ...` query, `distance_metric=cosine` added to schema.rs's column def
+  (defaults to L2 otherwise — caught via real sqlite-vec docs, not guessed);
+  `zerocopy::IntoBytes` for the query-vector parameter binding (the official
+  sqlite-vec Rust guide's own recommended pattern). Verified end-to-end**:
+  3 real remembered facts, `recall("coffee machine problem")` correctly
+  returns the 2 coffee/espresso items ranked first and excludes the unrelated
+  revenue fact — genuine semantic KNN, not keyword matching.
+- [X] T010 [US1] Update `src/services/write_policy.rs`'s candidate scoring to
   call the new `embedding::embed()`/`cosine_similarity()` over real vectors
   (feature 005's keyword-index prefilter stage is unchanged — only the scoring
   math underneath it now operates on real embeddings instead of hashed-BoW).
-- [ ] T011 [US1] Wire `src/lib.rs`'s `remember()` to write the
+  **Automatic once T006 swapped `embed()`'s implementation** — no code change
+  needed beyond the `?` already added for the `Result` signature change;
+  verified via the full regression suite (write_policy's merge/contradiction
+  tests all pass against real embeddings).
+- [X] T011 [US1] Wire `src/lib.rs`'s `remember()` to write the
   `memory_items_vec` row and set `memory_items.embedding_model_id` on every new
-  write (depends on T003, T006).
+  write (depends on T003, T006). **Added `embedding::ensure_embedding_model_row()`
+  + `embedding::upsert_vector_row()` helpers; wired into `lib.rs::insert_item()`
+  AND the two other real insert sites that write `memory_items` with an
+  embedding — `consolidation.rs`'s summary-promotion insert and
+  `rebuild.rs`'s two replay-handler inserts — so every path that creates an
+  item with an embedding (not just live writes) populates `memory_items_vec`,
+  not only the one `remember()` call site.** Verified end-to-end (same probe
+  as T009).
 - [ ] T012 [US1] Integration test: a stored memory is found by a genuine
   paraphrase/synonym query but an unrelated memory is not ranked ahead of it,
   in `tests/integration/test_vector_search.rs` (depends on T009, T011).
@@ -297,18 +343,22 @@ of the current codebase state. Ordered CRITICAL/HIGH first.
   **Done for both SQLite (`pragma_table_info` probe) and Postgres (`ADD
   COLUMN IF NOT EXISTS`, natively idempotent); verified idempotent via a
   double-open probe against the same real file.**
-- [ ] T032 Replace `src/services/embedding.rs`'s hashed bag-of-words `embed()`
+- [X] T032 Replace `src/services/embedding.rs`'s hashed bag-of-words `embed()`
   with the real frozen ort/ONNX MiniLM embedder per T006/research.md Decisions
-  2-3 (missing).
-- [ ] T033 Implement `pamet embedding fetch-model` in `src/bin/pamet.rs` per
-  T007/contracts/cli-contract.md (missing).
-- [ ] T034 Rewrite `src/services/retrieval_vector.rs` to query
+  2-3 (missing). **Done — see T006's detailed notes above.**
+- [X] T033 Implement `pamet embedding fetch-model` in `src/bin/pamet.rs` per
+  T007/contracts/cli-contract.md (missing). **Done — see T007's detailed
+  notes above.**
+- [X] T034 Rewrite `src/services/retrieval_vector.rs` to query
   `memory_items_vec` via `sqlite-vec` KNN instead of the brute-force
-  `embedding_json` scan per T009/FR-003/US2 (missing).
-- [ ] T035 Update `src/services/write_policy.rs`'s candidate scoring to the
-  new real embedder per T010/FR-001 (missing — depends on T032).
-- [ ] T036 Wire `src/lib.rs`'s `remember()` to write a `memory_items_vec` row +
+  `embedding_json` scan per T009/FR-003/US2 (missing). **Done — see T009's
+  detailed notes above.**
+- [X] T035 Update `src/services/write_policy.rs`'s candidate scoring to the
+  new real embedder per T010/FR-001 (missing — depends on T032). **Done —
+  see T010's detailed notes above.**
+- [X] T036 Wire `src/lib.rs`'s `remember()` to write a `memory_items_vec` row +
   `embedding_model_id` on every new write per T011/data-model.md (missing).
+  **Done — see T011's detailed notes above.**
 - [ ] T037 Implement User Story 3 (P3) in full — `src/services/
   embedding_backfill.rs`, the `pamet embedding backfill` CLI subcommand, and
   `rebuild.rs`'s `embedding_backfilled` replay handler — per T017-T021
@@ -318,11 +368,19 @@ of the current codebase state. Ordered CRITICAL/HIGH first.
   `tests/integration/test_embedding_backfill.rs`) and run the real SC-001/
   SC-002 measurements per T008/T012-T016/T022 (missing — no new tests exist
   yet for this feature).
-- [ ] T039 Confirm `ort`/`tokenizers`/`zerocopy`'s pinned versions in
+- [X] T039 Confirm `ort`/`tokenizers`/`zerocopy`'s pinned versions in
   `Cargo.toml` actually fit the real embedding code once T032 lands; adjust if
   the API doesn't match what was guessed at dependency-add time (partial —
   these versions got a clean `cargo build` but are unexercised by any real
-  embedding code yet).
-- [ ] T040 Confirm `zerocopy` is actually required by `ort`'s tensor/IoBinding
+  embedding code yet). **Confirmed: `ort = "2.0.0-rc.15"` and
+  `tokenizers = "0.23"` work correctly with real embedding code (verified
+  end-to-end against the real downloaded model). `Session::builder()`
+  actually requires an explicit `&Environment` argument in this version
+  (`ort::init().build()?`) — not the no-arg form a generic online example
+  initially suggested; fixed via the real compiler error, not guessed.**
+- [X] T040 Confirm `zerocopy` is actually required by `ort`'s tensor/IoBinding
   handling once T032 lands, or remove it from `Cargo.toml` — it was added
   without a research.md decision or tasks.md task justifying it (unrequested).
+  **Removed — not needed. Also added `ndarray` (confirmed required by the
+  real `ort` sentence-embedding usage pattern) and `sha2` (needed for
+  `fetch-model`'s real checksum verification, T007).**

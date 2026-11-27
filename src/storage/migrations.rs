@@ -102,7 +102,9 @@ pub fn ensure_memory_items_embedding_model_id_column_sqlite(conn: &Connection) -
         return Ok(()); // memory_items doesn't exist yet — nothing to migrate.
     }
     let already_present: bool = conn
-        .prepare("SELECT 1 FROM pragma_table_info('memory_items') WHERE name = 'embedding_model_id'")?
+        .prepare(
+            "SELECT 1 FROM pragma_table_info('memory_items') WHERE name = 'embedding_model_id'",
+        )?
         .query_row([], |r| r.get::<_, i64>(0))
         .map(|_| true)
         .unwrap_or(false);

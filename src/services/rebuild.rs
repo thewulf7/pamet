@@ -319,15 +319,25 @@ fn insert_item_from_replay(
     supersedes_id: Option<String>,
     #[allow(unused_variables)] occurred_at: &str,
 ) -> Result<()> {
-    let embedding = crate::services::embedding::embed(content);
+    let embedding = crate::services::embedding::embed(content)?;
     match &store.backend {
         Backend::Sqlite(conn) => {
+            crate::services::embedding::ensure_embedding_model_row(conn)?;
             conn.execute(
-                "INSERT INTO memory_items (id, item_type, content, embedding_json, entities_json, \
+                "INSERT INTO memory_items (id, item_type, content, embedding_json, \
+                    embedding_model_id, entities_json, \
                     confidence, provenance_event_id, supersedes_id, created_at, use_count) \
-                 VALUES (?1, 'fact', ?2, ?3, '[]', 0.9, ?4, ?5, (SELECT occurred_at FROM events WHERE id = ?4), 0)",
-                params![id, content, serde_json::to_string(&embedding)?, provenance_event_id, supersedes_id],
+                 VALUES (?1, 'fact', ?2, ?3, ?4, '[]', 0.9, ?5, ?6, (SELECT occurred_at FROM events WHERE id = ?5), 0)",
+                params![
+                    id,
+                    content,
+                    serde_json::to_string(&embedding)?,
+                    crate::services::embedding::MODEL_ID,
+                    provenance_event_id,
+                    supersedes_id
+                ],
             )?;
+            crate::services::embedding::upsert_vector_row(conn, id, &embedding)?;
             conn.execute(
                 "INSERT INTO memory_items_fts (id, content) VALUES (?1, ?2)",
                 params![id, content],
@@ -540,15 +550,25 @@ fn apply_summary_created(store: &Store, event: &Event, payload: &serde_json::Val
         })
         .unwrap_or_default();
 
-    let embedding = crate::services::embedding::embed(summary_content);
+    let embedding = crate::services::embedding::embed(summary_content)?;
     match &store.backend {
         Backend::Sqlite(conn) => {
+            crate::services::embedding::ensure_embedding_model_row(conn)?;
             conn.execute(
-                "INSERT INTO memory_items (id, item_type, content, embedding_json, entities_json, confidence, \
+                "INSERT INTO memory_items (id, item_type, content, embedding_json, \
+                    embedding_model_id, entities_json, confidence, \
                     provenance_event_id, supersedes_id, created_at, use_count) \
-                 VALUES (?1, 'summary', ?2, ?3, '[]', 0.9, ?4, NULL, ?5, 0)",
-                params![summary_item_id, summary_content, serde_json::to_string(&embedding)?, event.id, event.occurred_at],
+                 VALUES (?1, 'summary', ?2, ?3, ?4, '[]', 0.9, ?5, NULL, ?6, 0)",
+                params![
+                    summary_item_id,
+                    summary_content,
+                    serde_json::to_string(&embedding)?,
+                    crate::services::embedding::MODEL_ID,
+                    event.id,
+                    event.occurred_at
+                ],
             )?;
+            crate::services::embedding::upsert_vector_row(conn, &summary_item_id, &embedding)?;
             conn.execute(
                 "INSERT INTO memory_items_fts (id, content) VALUES (?1, ?2)",
                 params![summary_item_id, summary_content],

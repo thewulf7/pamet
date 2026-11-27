@@ -99,6 +99,19 @@ enum Command {
         #[command(subcommand)]
         action: GramAction,
     },
+    /// Feature 009: real local embedding model setup (contracts/cli-contract.md).
+    Embedding {
+        #[command(subcommand)]
+        action: EmbeddingAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum EmbeddingAction {
+    /// One-time setup: download + checksum-verify the frozen ONNX embedding
+    /// model into the local cache directory. Idempotent — safe to re-run.
+    /// The only command in this CLI that touches the network.
+    FetchModel {},
 }
 
 #[derive(Subcommand)]
@@ -167,6 +180,31 @@ fn main() -> ExitCode {
     if let Command::Migrate { from, to } = &cli.command {
         return match run_migrate(from, to) {
             Ok(code) => code,
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::from(1)
+            }
+        };
+    }
+
+    // `embedding fetch-model` needs no `--db` store at all — it only
+    // touches the local model cache directory.
+    if let Command::Embedding {
+        action: EmbeddingAction::FetchModel {},
+    } = &cli.command
+    {
+        return match pamet::services::embedding::fetch_model() {
+            Ok(outcomes) => {
+                for o in &outcomes {
+                    let status = if o.already_current {
+                        "already current"
+                    } else {
+                        "fetched"
+                    };
+                    println!("{} ({status})", o.dest.display());
+                }
+                ExitCode::SUCCESS
+            }
             Err(e) => {
                 eprintln!("{e}");
                 ExitCode::from(1)
@@ -374,6 +412,9 @@ fn run(store: &Store, command: Command) -> Result<ExitCode, pamet::Error> {
         }
         Command::Migrate { .. } => {
             unreachable!("migrate is handled directly in main() before run()")
+        }
+        Command::Embedding { .. } => {
+            unreachable!("embedding fetch-model is handled directly in main() before run()")
         }
         #[cfg(feature = "baseline-hindsight")]
         Command::ImportHindsight {

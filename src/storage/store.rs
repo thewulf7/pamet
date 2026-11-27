@@ -25,15 +25,14 @@ use super::postgres_pool::{self, PgPool};
 /// in the same binary if enabled; see T001/T002's real regression).
 fn register_sqlite_vec_once() {
     static REGISTERED: std::sync::Once = std::sync::Once::new();
-    REGISTERED.call_once(|| {
-        unsafe {
-            let raw_ext: rusqlite::auto_extension::RawAutoExtension =
-                std::mem::transmute(sqlite_vec::sqlite3_vec_init as usize);
-            rusqlite::auto_extension::register_auto_extension(raw_ext)
-                .expect("sqlite-vec auto_extension registration must succeed — a failure here \
+    REGISTERED.call_once(|| unsafe {
+        let raw_ext: rusqlite::auto_extension::RawAutoExtension =
+            std::mem::transmute(sqlite_vec::sqlite3_vec_init as usize);
+        rusqlite::auto_extension::register_auto_extension(raw_ext).expect(
+            "sqlite-vec auto_extension registration must succeed — a failure here \
                          means every subsequent vector operation would silently have no vec0 \
-                         support, which is worse than failing loudly at startup");
-        }
+                         support, which is worse than failing loudly at startup",
+        );
     });
 }
 

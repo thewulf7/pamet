@@ -111,10 +111,19 @@ fn replayed_gram_models_match_source_byte_for_byte_synthetic() {
     let _guard = lock_db();
     let (source, _is_postgres) = open_target();
 
+    // T006: wording updated for the real ONNX MiniLM embedder. The old
+    // wording scored ~0.856 cosine similarity (real measured) — above
+    // write_policy::MERGE_SIMILARITY_THRESHOLD (0.85), so the real semantic
+    // embedder correctly merges the second write into the first at write
+    // time (they really are near-duplicates), leaving only 1 active item
+    // and nothing for consolidation to cluster. This wording lands at a
+    // real measured ~0.675 — inside [LOW_CONFIDENCE_THRESHOLD 0.5,
+    // MERGE_SIMILARITY_THRESHOLD 0.85): similar enough to cluster during
+    // consolidation, not so similar it merges at write time.
     remember(&source, "The deploy pipeline failed on build step three");
     remember(
         &source,
-        "Deploy pipeline keeps failing at build step three stage",
+        "That same build step three failure is happening again",
     );
     pamet::consolidate(&source).unwrap();
 

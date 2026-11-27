@@ -22,6 +22,9 @@ pub enum Error {
     #[error("malformed event payload: {0}")]
     MalformedEvent(String),
 
+    #[error("embedding error: {0}")]
+    Embedding(String),
+
     #[cfg(feature = "postgres-backend")]
     #[error("postgres storage error: {0}")]
     Postgres(#[from] postgres::Error),

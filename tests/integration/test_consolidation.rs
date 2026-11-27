@@ -232,24 +232,29 @@ fn confirmed_summary_replaces_originals_in_recall_sc005() {
 /// store from different sources/times without ever being write-time-compared
 /// against each other, which is exactly the gap consolidation's own
 /// exhaustive pairwise scan (`flag_contradictions`) exists to catch.
-/// Wording verified against the real `embed()`/`cosine_similarity()` to land
+/// Wording verified against the real `embed()`/`cosine_similarity()` (T006's
+/// real ONNX MiniLM embedder, not the old hashed-BoW placeholder) to land
 /// in `write_policy`'s contradiction-eligible band (CONTRADICTION_SIMILARITY_FLOOR
 /// 0.35 <= sim < LOW_CONFIDENCE_THRESHOLD 0.5, so they are NOT also clustered
-/// by `cluster_items()`, which only unions pairs >= 0.5): sim ≈ 0.42, 4 shared
-/// tokens, candidate B contains contradiction markers ("actually"/"not"/"now").
+/// by `cluster_items()`, which only unions pairs >= 0.5): real measured
+/// sim ≈ 0.449, 2 shared tokens ("owns"/"work" — meets `detect_contradiction`'s
+/// `shared >= 2`), candidate B contains contradiction markers ("actually"/"now").
 #[test]
 fn contradicting_facts_are_flagged_for_review_not_auto_resolved_t048() {
     use pamet::services::embedding;
     use pamet::services::events;
 
-    const FACT_A: &str = "the quarterly review meeting happens tuesday afternoon in building two";
-    const FACT_B: &str = "actually the quarterly review is not happening tuesday now";
+    const FACT_A: &str = "jordan owns the payments integration work";
+    const FACT_B: &str = "actually someone else now owns that work";
 
     let store = Store::open_in_memory().unwrap();
 
     // Sanity: confirm the wording actually lands in the intended band before
     // relying on it (CONTRADICTION_SIMILARITY_FLOOR <= sim < LOW_CONFIDENCE_THRESHOLD).
-    let sim = embedding::cosine_similarity(&embedding::embed(FACT_A), &embedding::embed(FACT_B));
+    let sim = embedding::cosine_similarity(
+        &embedding::embed(FACT_A).unwrap(),
+        &embedding::embed(FACT_B).unwrap(),
+    );
     assert!(
         (0.35..0.5).contains(&sim),
         "fixture wording must land in [0.35, 0.5), got {sim}"
@@ -262,7 +267,7 @@ fn contradicting_facts_are_flagged_for_review_not_auto_resolved_t048() {
             &serde_json::json!({"source_id": "direct-insert", "candidate_content": text}),
         )
         .unwrap();
-        let embedding = embedding::embed(text);
+        let embedding = embedding::embed(text).unwrap();
         store
             .conn()
             .execute(

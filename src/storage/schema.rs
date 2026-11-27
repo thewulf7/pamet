@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS embedding_models (
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_items_vec USING vec0(
     item_id TEXT PRIMARY KEY,
-    embedding FLOAT[384]
+    embedding FLOAT[384] distance_metric=cosine
 );
 
 CREATE TABLE IF NOT EXISTS write_decisions (

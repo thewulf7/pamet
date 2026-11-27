@@ -368,15 +368,26 @@ fn form_summary(
         }),
     )?;
 
-    let embedding = embedding::embed(&chosen.content);
+    let embedding = embedding::embed(&chosen.content)?;
     match &store.backend {
         Backend::Sqlite(conn) => {
+            embedding::ensure_embedding_model_row(conn)?;
             conn.execute(
-                "INSERT INTO memory_items (id, item_type, content, embedding_json, entities_json, confidence, \
+                "INSERT INTO memory_items (id, item_type, content, embedding_json, \
+                    embedding_model_id, entities_json, confidence, \
                     provenance_event_id, supersedes_id, created_at, use_count) \
-                 VALUES (?1, 'summary', ?2, ?3, '[]', ?4, ?5, NULL, ?6, 0)",
-                params![summary_id, chosen.content, serde_json::to_string(&embedding)?, chosen.confidence as f64, summary_event_id, now],
+                 VALUES (?1, 'summary', ?2, ?3, ?4, '[]', ?5, ?6, NULL, ?7, 0)",
+                params![
+                    summary_id,
+                    chosen.content,
+                    serde_json::to_string(&embedding)?,
+                    embedding::MODEL_ID,
+                    chosen.confidence as f64,
+                    summary_event_id,
+                    now
+                ],
             )?;
+            embedding::upsert_vector_row(conn, &summary_id, &embedding)?;
             conn.execute(
                 "INSERT INTO memory_items_fts (id, content) VALUES (?1, ?2)",
                 params![summary_id, chosen.content],

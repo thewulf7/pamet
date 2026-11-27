@@ -255,25 +255,29 @@ fn insert_item(
     supersedes_id: Option<String>,
     confidence: f32,
 ) -> Result<()> {
-    let embedding = services::embedding::embed(&candidate.content);
+    let embedding = services::embedding::embed(&candidate.content)?;
     let now = Utc::now().to_rfc3339();
     match &store.backend {
         Backend::Sqlite(conn) => {
+            services::embedding::ensure_embedding_model_row(conn)?;
             conn.execute(
-                "INSERT INTO memory_items (id, item_type, content, embedding_json, entities_json, \
+                "INSERT INTO memory_items (id, item_type, content, embedding_json, \
+                    embedding_model_id, entities_json, \
                     confidence, provenance_event_id, supersedes_id, created_at, use_count) \
-                 VALUES (?1, ?2, ?3, ?4, '[]', ?5, ?6, ?7, ?8, 0)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, '[]', ?6, ?7, ?8, ?9, 0)",
                 params![
                     id,
                     candidate.item_type.as_str(),
                     candidate.content,
                     serde_json::to_string(&embedding)?,
+                    services::embedding::MODEL_ID,
                     confidence as f64,
                     event_id,
                     supersedes_id,
                     now,
                 ],
             )?;
+            services::embedding::upsert_vector_row(conn, id, &embedding)?;
             conn.execute(
                 "INSERT INTO memory_items_fts (id, content) VALUES (?1, ?2)",
                 params![id, candidate.content],

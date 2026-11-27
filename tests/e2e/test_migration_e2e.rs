@@ -365,7 +365,7 @@ fn migrate_10000_items_completes_under_5_minutes_sc002() {
     let n = 10_000;
     for i in 0..n {
         let content = format!("sc002 scale fact number {i} about topic {}", i % 101);
-        let embedding = pamet::services::embedding::embed(&content);
+        let embedding = pamet::services::embedding::embed(&content).unwrap();
         let id = uuid::Uuid::new_v4().to_string();
         let event_id = pamet::services::events::append_event(
             &source,
